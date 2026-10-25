@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { AddBook } from '@/components/add-book'
 
 type Book = {
@@ -29,8 +30,9 @@ function BookCover({ book, idx }: { book: Book; idx: number }) {
   const pct = book.progress_pct ?? 0
 
   return (
-    <div
-      className="group cursor-pointer"
+    <Link
+      href={`/app/reader/${book.id}`}
+      className="group cursor-pointer block"
       style={{ animation: `fade-in 200ms ease ${idx * 40}ms both` }}
     >
       {/* Cover */}
@@ -72,7 +74,7 @@ function BookCover({ book, idx }: { book: Book; idx: number }) {
       {/* Meta */}
       <div className="text-[0.82rem] font-semibold truncate" style={{ color: '#F0E8D8' }}>{book.title}</div>
       <div className="text-[0.72rem] truncate" style={{ color: '#6A5840' }}>{book.author ?? 'Unknown'}</div>
-    </div>
+    </Link>
   )
 }
 
