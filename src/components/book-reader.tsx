@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { getBookFile } from '@/lib/idb'
 import { createClient } from '@/lib/supabase/client'
 import { TTSPanel } from '@/components/tts-panel'
+import { markTodayRead } from '@/lib/streak'
 
 type BookRow = {
   id: string
@@ -34,6 +35,8 @@ export function BookReader({ book }: { book: BookRow }) {
   const [ttsText,      setTtsText]      = useState('')
   const [showTTS,      setShowTTS]      = useState(false)
 
+  useEffect(() => { markTodayRead() }, [])
+
   async function saveProgress(pct: number) {
     const rounded = Math.min(100, Math.max(0, Math.round(pct)))
     setProgress(rounded)
@@ -51,7 +54,6 @@ export function BookReader({ book }: { book: BookRow }) {
 
         const { default: ePub } = await import('epubjs')
         const epubBook = ePub(buf as ArrayBuffer)
-        await epubBook.ready
 
         if (!epubContainerRef.current) return
 
@@ -68,24 +70,22 @@ export function BookReader({ book }: { book: BookRow }) {
           const doc = contents.document
           if (!doc) return
           const style = doc.createElement('style')
+          // Don't override book colors — render as the book intends
+          const fontSizePref = localStorage.getItem('aziza_font_size') ?? 'md'
+          const fontSize = fontSizePref === 'sm' ? '0.9em' : fontSizePref === 'lg' ? '1.2em' : '1.05em'
           style.textContent = `
-            html, body {
-              background: #0C0B09 !important;
-              color: #E8DCC8 !important;
-              font-family: Georgia, 'Times New Roman', serif !important;
-            }
-            body * {
-              color: #E8DCC8 !important;
-              background-color: transparent !important;
-            }
-            a, a * { color: #C8852A !important; }
-            p { line-height: 1.8 !important; font-size: 1.05em !important; }
-            img { max-width: 100% !important; height: auto !important; background-color: initial !important; }
+            img { max-width: 100% !important; height: auto !important; }
+            p   { line-height: 1.75 !important; font-size: ${fontSize} !important; }
           `
           doc.head.appendChild(style)
         })
 
-        await rendition.display()
+        // Skip cover/index pages — jump to first real chapter
+        const SKIP = /cover|title|toc|nav|index|copyright|halftitle/i
+        const spine = (epubBook.spine as any)
+        const spineItems: any[] = spine?.items ?? []
+        const firstChapter = spineItems.find(item => !SKIP.test(item.href ?? ''))
+        await rendition.display(firstChapter?.href ?? undefined)
 
         rendition.on('relocated', (location: any) => {
           const href = location.start?.href ?? ''
@@ -106,7 +106,7 @@ export function BookReader({ book }: { book: BookRow }) {
           } catch {}
         })
 
-        ;(epubBook.locations as any).generate(1024).catch(() => {})
+        // locations.generate omitted — too CPU-intensive, freezes main thread
         setLoading(false)
       } catch (e: any) {
         setError(e.message ?? 'Failed to load EPUB')
@@ -155,8 +155,7 @@ export function BookReader({ book }: { book: BookRow }) {
         if (!buf) throw new Error('Book file not in local storage — add it again.')
 
         const pdfjsLib = await import('pdfjs-dist')
-        pdfjsLib.GlobalWorkerOptions.workerSrc =
-          `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
         const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise
         pdfDocRef.current = pdf

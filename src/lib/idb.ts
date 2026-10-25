@@ -27,3 +27,8 @@ export async function deleteBookFile(bookId: string) {
   const db = await getDB()
   await db.delete('book_files', bookId)
 }
+
+export async function clearAllBookFiles() {
+  const db = await getDB()
+  await db.clear('book_files')
+}

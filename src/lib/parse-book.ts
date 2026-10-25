@@ -48,7 +48,7 @@ async function parseEpub(file: File): Promise<BookMeta> {
 async function parsePdf(file: File): Promise<BookMeta> {
   const pdfjsLib = await import('pdfjs-dist')
   // Point worker to bundled worker
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
   const buf = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise

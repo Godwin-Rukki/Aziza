@@ -25,7 +25,9 @@ function splitSentences(text: string): string[] {
 export function TTSPanel({ text, onClose }: { text: string; onClose: () => void }) {
   const [stage, setStage]         = useState<Stage>('idle')
   const [modelPct, setModelPct]   = useState(0)
-  const [voice, setVoice]         = useState('af_heart')
+  const [voice, setVoice]         = useState(() =>
+    typeof window !== 'undefined' ? (localStorage.getItem('aziza_default_voice') ?? 'af_heart') : 'af_heart'
+  )
   const [speed, setSpeed]         = useState(1)
   const [idx, setIdx]             = useState(0)
   const [error, setError]         = useState<string | null>(null)
