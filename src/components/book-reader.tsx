@@ -286,10 +286,32 @@ export function BookReader({ book }: { book: BookRow }) {
       <div className="flex-1 relative overflow-hidden">
 
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <svg className="animate-spin w-8 h-8" style={{ color: '#C8852A' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 12a9 9 0 11-6.219-8.56"/>
-            </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-8" style={{ background: '#0C0B09' }}>
+            {book.cover_data ? (
+              <img
+                src={book.cover_data}
+                alt={book.title}
+                className="w-24 rounded-xl shadow-2xl"
+                style={{ aspectRatio: '2/3', objectFit: 'cover', opacity: 0.85 }}
+              />
+            ) : (
+              <div className="w-24 rounded-xl flex items-center justify-center" style={{ aspectRatio: '2/3', background: '#1C1915' }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#C8852A" strokeWidth="1.2" opacity="0.5">
+                  <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+                </svg>
+              </div>
+            )}
+            <div className="text-center">
+              <div className="text-base font-semibold mb-1 max-w-[220px] truncate" style={{ fontFamily: "'Yeseva One', serif", color: '#F0E8D8' }}>
+                {book.title}
+              </div>
+              <div className="flex items-center justify-center gap-2" style={{ color: '#6A5840' }}>
+                <svg className="animate-spin w-4 h-4 shrink-0" style={{ color: '#C8852A' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                </svg>
+                <span className="text-sm">Opening book…</span>
+              </div>
+            </div>
           </div>
         )}
 
