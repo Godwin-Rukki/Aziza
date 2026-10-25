@@ -64,12 +64,26 @@ export function BookReader({ book }: { book: BookRow }) {
 
         renditionRef.current = rendition
 
-        rendition.themes.register('aziza', {
-          body: { background: '#0C0B09 !important', color: '#E8DCC8 !important', fontFamily: 'Georgia, serif !important' },
-          p:    { lineHeight: '1.8 !important', fontSize: '1.05em !important' },
-          a:    { color: '#C8852A !important' },
+        rendition.hooks.content.register((contents: any) => {
+          const doc = contents.document
+          if (!doc) return
+          const style = doc.createElement('style')
+          style.textContent = `
+            html, body {
+              background: #0C0B09 !important;
+              color: #E8DCC8 !important;
+              font-family: Georgia, 'Times New Roman', serif !important;
+            }
+            body * {
+              color: #E8DCC8 !important;
+              background-color: transparent !important;
+            }
+            a, a * { color: #C8852A !important; }
+            p { line-height: 1.8 !important; font-size: 1.05em !important; }
+            img { max-width: 100% !important; height: auto !important; background-color: initial !important; }
+          `
+          doc.head.appendChild(style)
         })
-        rendition.themes.select('aziza')
 
         await rendition.display()
 
@@ -350,7 +364,7 @@ export function BookReader({ book }: { book: BookRow }) {
       )}
 
       {/* TTS panel */}
-      {showTTS && ttsText && (
+      {showTTS && (
         <TTSPanel text={ttsText} onClose={() => setShowTTS(false)} />
       )}
     </div>

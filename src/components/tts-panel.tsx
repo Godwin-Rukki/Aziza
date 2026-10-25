@@ -148,7 +148,7 @@ export function TTSPanel({ text, onClose }: { text: string; onClose: () => void 
           }}
         >
           {stage === 'loading'      ? `Loading voice model… ${modelPct}%`  :
-           stage === 'idle'         ? 'Press play to start listening'       :
+           stage === 'idle'         ? (text.trim() ? 'Press play to start listening' : 'No text on this page — navigate to a text page') :
            stage === 'done'         ? 'Finished'                            :
            stage === 'error'        ? (error ?? 'Error')                    :
            stage === 'paused'       ? `Paused — ${current}`                 :
