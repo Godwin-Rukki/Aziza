@@ -38,55 +38,52 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+// Literal string replacement — avoids `$` pattern issues in CSS/image content
+function strReplace(src: string, search: string, replacement: string): string {
+  return src.split(search).join(replacement)
+}
+
 async function buildChapterHtml(
   zip: any,
   opfDir: string,
   chapterHref: string,
   fontSize: string,
 ): Promise<{ html: string; text: string }> {
-  const chapterPath = opfDir ? `${opfDir}/${chapterHref}` : chapterHref
-  const chapterFile = zip.file(chapterPath) ?? zip.file(chapterHref)
-  if (!chapterFile) return { html: '<p>Chapter not found.</p>', text: '' }
+  // Strip fragment identifier before file lookup
+  const hrefNoFrag = chapterHref.split('#')[0]
+  const chapterPath = opfDir ? `${opfDir}/${hrefNoFrag}` : hrefNoFrag
+  const chapterFile = zip.file(chapterPath) ?? zip.file(hrefNoFrag)
+  if (!chapterFile) return { html: `<p style="color:#888;padding:1rem">Chapter not found: ${chapterPath}</p>`, text: '' }
 
   let html: string = await chapterFile.async('text')
-  const chapterDir  = chapterHref.split('/').slice(0, -1).join('/')
+  const chapterDir  = hrefNoFrag.split('/').slice(0, -1).join('/')
   const baseDir     = [opfDir, chapterDir].filter(Boolean).join('/')
 
-  // Inline linked stylesheets
-  const cssRe = /<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["'][^>]*\/?>/gi
-  for (const m of [...html.matchAll(cssRe)]) {
-    const cssPath = resolvePath(baseDir, m[1])
+  // Inline linked stylesheets (handle both attribute orders)
+  const cssRe = /<link\b[^>]+>/gi
+  for (const tag of [...html.matchAll(cssRe)].map(m => m[0])) {
+    const isStylesheet = /rel=["']stylesheet["']/i.test(tag)
+    const hrefMatch    = tag.match(/href=["']([^"']+)["']/i)
+    if (!isStylesheet || !hrefMatch) continue
+    const cssPath = resolvePath(baseDir, hrefMatch[1])
     const cssFile = zip.file(cssPath)
     if (cssFile) {
       const css = await cssFile.async('text')
-      html = html.replace(m[0], `<style>${css}</style>`)
-    }
-  }
-  // Also handle reversed attribute order
-  const cssRe2 = /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']stylesheet["'][^>]*\/?>/gi
-  for (const m of [...html.matchAll(cssRe2)]) {
-    const cssPath = resolvePath(baseDir, m[1])
-    const cssFile = zip.file(cssPath)
-    if (cssFile) {
-      const css = await cssFile.async('text')
-      html = html.replace(m[0], `<style>${css}</style>`)
+      html = strReplace(html, tag, `<style>${css}</style>`)
     }
   }
 
-  // Inline images (src and xlink:href)
-  for (const re of [
-    /(<(?:img|image)[^>]+(?:src|xlink:href)=["'])([^"'#][^"']*)(['"])/gi,
-  ]) {
-    for (const m of [...html.matchAll(re)]) {
-      const imgPath = resolvePath(baseDir, m[2])
-      const imgFile = zip.file(imgPath)
-      if (imgFile) {
-        try {
-          const blob    = await imgFile.async('blob')
-          const dataUrl = await blobToDataUrl(blob)
-          html = html.replace(m[0], `${m[1]}${dataUrl}${m[3]}`)
-        } catch {}
-      }
+  // Inline images (src and xlink:href) — use literal replacement
+  const imgRe = /(<(?:img|image)\b[^>]+(?:src|xlink:href)=["'])([^"'#][^"']*)(['"])/gi
+  for (const m of [...html.matchAll(imgRe)]) {
+    const imgPath = resolvePath(baseDir, m[2])
+    const imgFile = zip.file(imgPath)
+    if (imgFile) {
+      try {
+        const blob    = await imgFile.async('blob')
+        const dataUrl = await blobToDataUrl(blob)
+        html = strReplace(html, m[0], `${m[1]}${dataUrl}${m[3]}`)
+      } catch {}
     }
   }
 
@@ -140,19 +137,27 @@ async function parseEpubStructure(zip: any): Promise<{
   const opfXml  = await opfFile.async('text')
   const opfDoc  = parser.parseFromString(opfXml, 'text/xml')
 
-  // Build manifest: id → href (use localName to ignore namespace prefixes)
-  const manifest: Record<string, string> = {}
+  // Build manifest: id → {href, mediaType} (use localName to ignore namespace prefixes)
+  const manifest: Record<string, { href: string; mt: string }> = {}
   for (const el of xmlEls(opfDoc, 'item')) {
-    const id   = el.getAttribute('id')
+    const id = el.getAttribute('id')
     const href = el.getAttribute('href')
-    if (id && href) manifest[id] = decodeURIComponent(href)
+    const mt   = el.getAttribute('media-type') ?? ''
+    if (id && href) manifest[id] = { href: decodeURIComponent(href), mt }
   }
 
-  // Spine: ordered chapter hrefs
+  // Spine: ordered HTML chapter hrefs only
+  const HTML_MT = /xhtml|html/i
   const chapters: string[] = []
   for (const el of xmlEls(opfDoc, 'itemref')) {
     const idref = el.getAttribute('idref')
-    if (idref && manifest[idref]) chapters.push(manifest[idref])
+    if (!idref) continue
+    const item = manifest[idref]
+    if (!item) continue
+    // Include if media-type is xhtml/html, or if we have no media-type info but href looks like HTML
+    if (HTML_MT.test(item.mt) || (!item.mt && /\.x?html?$/i.test(item.href))) {
+      chapters.push(item.href)
+    }
   }
 
   if (chapters.length === 0) throw new Error('EPUB has no readable chapters.')
