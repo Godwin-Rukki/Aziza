@@ -15,5 +15,7 @@ export default async function LibraryPage() {
     .eq('user_id', user.id)
     .order('last_opened', { ascending: false, nullsFirst: false })
 
-  return <LibraryView books={books ?? []} />
+  const name = user.email?.split('@')[0] ?? 'reader'
+
+  return <LibraryView books={books ?? []} userName={name} />
 }

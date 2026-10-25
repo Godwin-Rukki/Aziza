@@ -9,6 +9,17 @@ const yesevaOne = Yeseva_One({ subsets: ['latin'], weight: '400', variable: '--f
 export const metadata: Metadata = {
   title: 'Aziza — Listen to your books',
   description: 'Offline-first ebook reader with expressive AI voices',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Aziza',
+  },
+  themeColor: '#C8852A',
+  icons: {
+    icon: '/favicon.svg',
+    apple: '/favicon.svg',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

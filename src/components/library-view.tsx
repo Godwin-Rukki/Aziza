@@ -133,9 +133,30 @@ function EmptyState({ onAdded }: { onAdded: (book: Book) => void }) {
   )
 }
 
-export function LibraryView({ books: initialBooks }: { books: Book[] }) {
+const GREETINGS = [
+  (n: string) => `Back again, ${n}. The pages missed you.`,
+  (n: string) => `Oh, it's ${n}. Thought you forgot about us.`,
+  (n: string) => `Look who's here. Ready, ${n}?`,
+  (_: string) => `Still chasing stories? Good.`,
+  (_: string) => `The shelf is ready. Are you?`,
+  (_: string) => `Pick up where you left off.`,
+  (_: string) => `Reading is the move. Let's go.`,
+]
+
+function sassyGreeting(name: string, bookCount: number): string {
+  if (bookCount === 0) return `Nothing to read yet, ${name}. Add something worth your time.`
+  const hour = new Date().getHours()
+  if (hour < 6)  return `Up before dawn, ${name}? Respect. Read something.`
+  if (hour < 12) return `Morning, ${name}. Best time to read.`
+  if (hour < 17) return GREETINGS[Math.floor(Math.random() * GREETINGS.length)](name)
+  if (hour < 21) return `Evening, ${name}. The story won't finish itself.`
+  return `Late night reading? That's the spirit, ${name}.`
+}
+
+export function LibraryView({ books: initialBooks, userName = 'reader' }: { books: Book[]; userName?: string }) {
   const [books, setBooks] = useState<Book[]>(initialBooks)
   const [search, setSearch] = useState('')
+  const greeting = sassyGreeting(userName, initialBooks.length)
 
   function onAdded(book: Book) {
     setBooks(prev => [book, ...prev])
@@ -165,6 +186,7 @@ export function LibraryView({ books: initialBooks }: { books: Book[] }) {
             <h1 className="text-2xl md:text-[1.75rem] leading-tight" style={{ fontFamily: "'Yeseva One', serif", color: '#F0E8D8' }}>
               Your Library
             </h1>
+            <p className="text-[0.72rem] mt-0.5 italic" style={{ color: '#C8852A' }}>{greeting}</p>
             <p className="text-xs md:text-sm mt-0.5" style={{ color: '#A8947C' }}>
               {books.length} book{books.length !== 1 ? 's' : ''}
               {inProgress.length > 0 && ` · ${inProgress.length} in progress`}
