@@ -90,21 +90,34 @@ async function buildChapterHtml(
     }
   }
 
-  // Inject our layout CSS — no color overrides, book's own colors stay
-  const injectedCss = `<style>
+  // Default fallback style injected FIRST (book's own CSS overrides it)
+  const defaultCss = `<style id="aziza-defaults">
+    body { background: #F5F0E8; color: #1A1410; }
+  </style>`
+  // Layout CSS injected LAST — only structural, no color override
+  const layoutCss = `<style id="aziza-layout">
     img { max-width: 100% !important; height: auto !important; }
     body { font-family: Georgia, 'Times New Roman', serif; line-height: 1.75;
            padding: 1.2rem 1.5rem; margin: 0; font-size: ${fontSize}; }
     p    { margin: 0 0 0.8em; }
   </style>`
-  if (/<\/head>/i.test(html)) {
-    html = html.replace(/<\/head>/i, `${injectedCss}</head>`)
+  if (/<head[^>]*>/i.test(html)) {
+    html = html.replace(/<head[^>]*>/i, m => `${m}${defaultCss}`)
+    html = html.replace(/<\/head>/i, `${layoutCss}</head>`)
+  } else if (/<\/head>/i.test(html)) {
+    html = html.replace(/<\/head>/i, `${defaultCss}${layoutCss}</head>`)
   } else {
-    html = `<html><head>${injectedCss}</head><body>${html}</body></html>`
+    html = `<html><head>${defaultCss}${layoutCss}</head><body>${html}</body></html>`
   }
 
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
   return { html, text }
+}
+
+function xmlEls(doc: Document, localName: string): Element[] {
+  return [...doc.getElementsByTagName('*')].filter(
+    el => el.localName.toLowerCase() === localName.toLowerCase()
+  )
 }
 
 async function parseEpubStructure(zip: any): Promise<{
@@ -112,36 +125,39 @@ async function parseEpubStructure(zip: any): Promise<{
   chapters: string[]
   firstRealIdx: number
 }> {
-  // container.xml → OPF path
+  const parser = new DOMParser()
+
+  // container.xml → OPF path (handle both " and ' quotes, any namespace)
   const containerXml = await zip.file('META-INF/container.xml')?.async('text') ?? ''
-  const opfPath = containerXml.match(/full-path="([^"]+)"/i)?.[1] ?? ''
-  if (!opfPath) throw new Error('Invalid EPUB: no OPF path in container.xml')
+  const containerDoc = parser.parseFromString(containerXml, 'text/xml')
+  const rootfileEl   = xmlEls(containerDoc, 'rootfile')[0]
+  const opfPath      = rootfileEl?.getAttribute('full-path') ?? ''
+  if (!opfPath) throw new Error('Invalid EPUB: cannot find rootfile in container.xml')
+
   const opfDir  = opfPath.split('/').slice(0, -1).join('/')
-
   const opfFile = zip.file(opfPath)
-  if (!opfFile) throw new Error('Invalid EPUB: OPF file not found')
+  if (!opfFile) throw new Error(`Invalid EPUB: OPF not found at "${opfPath}"`)
   const opfXml  = await opfFile.async('text')
+  const opfDoc  = parser.parseFromString(opfXml, 'text/xml')
 
-  // Build manifest: id → href
+  // Build manifest: id → href (use localName to ignore namespace prefixes)
   const manifest: Record<string, string> = {}
-  for (const m of opfXml.matchAll(/<item\s[^>]+>/gi)) {
-    const tag = m[0]
-    const id   = tag.match(/\bid="([^"]+)"/)?.[1]
-    const href = tag.match(/\bhref="([^"]+)"/)?.[1]
-    if (id && href) manifest[id] = href
+  for (const el of xmlEls(opfDoc, 'item')) {
+    const id   = el.getAttribute('id')
+    const href = el.getAttribute('href')
+    if (id && href) manifest[id] = decodeURIComponent(href)
   }
 
-  // Spine: ordered idrefs
+  // Spine: ordered chapter hrefs
   const chapters: string[] = []
-  for (const m of opfXml.matchAll(/<itemref[^>]+idref="([^"]+)"/gi)) {
-    const href = manifest[m[1]]
-    if (href) chapters.push(href)
+  for (const el of xmlEls(opfDoc, 'itemref')) {
+    const idref = el.getAttribute('idref')
+    if (idref && manifest[idref]) chapters.push(manifest[idref])
   }
 
   if (chapters.length === 0) throw new Error('EPUB has no readable chapters.')
 
-  // Find first non-cover chapter
-  const SKIP = /cover|toc|nav|index|copyright|halftitle|title/i
+  const SKIP        = /cover|toc|nav|index|copyright|halftitle|title/i
   const firstRealIdx = Math.max(0, chapters.findIndex(h => !SKIP.test(h)))
   return { opfDir, chapters, firstRealIdx }
 }
@@ -314,6 +330,20 @@ export function BookReader({ book }: { book: BookRow }) {
         setLoadingPct(100)
         setLoading(false)
         await renderPdfPage(pdf, startPage)
+
+        // Generate cover thumbnail from page 1 on first open
+        if (!book.cover_data) {
+          try {
+            const p1    = await pdf.getPage(1)
+            const vp    = p1.getViewport({ scale: 0.4 })
+            const cv    = document.createElement('canvas')
+            cv.width    = vp.width
+            cv.height   = vp.height
+            await p1.render({ canvasContext: cv.getContext('2d')!, viewport: vp }).promise
+            const thumb = cv.toDataURL('image/jpeg', 0.75)
+            await supabase.from('book_metadata').update({ cover_data: thumb }).eq('id', book.id)
+          } catch {}
+        }
       } catch (e: any) {
         clearTimeout(t)
         setError(e.message ?? 'Failed to load PDF')
@@ -451,11 +481,11 @@ export function BookReader({ book }: { book: BookRow }) {
         )}
 
         {/* EPUB iframe */}
-        {book.format === 'epub' && iframeSrc && (
+        {book.format === 'epub' && !loading && iframeSrc && (
           <iframe
             ref={iframeRef}
             src={iframeSrc}
-            className="w-full h-full border-none"
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
             sandbox="allow-same-origin"
             title="Book content"
           />

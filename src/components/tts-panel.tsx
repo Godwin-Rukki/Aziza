@@ -26,15 +26,27 @@ function splitSentences(text: string): string[] {
 
 function getBrowserVoice(voiceId: string): SpeechSynthesisVoice | null {
   const all = speechSynthesis.getVoices()
-  const enVoices = all.filter(v => v.lang.startsWith('en'))
-  if (enVoices.length === 0) return all[0] ?? null
+  if (all.length === 0) return null
   const female = FEMALE_IDS.has(voiceId)
-  const genderMatch = enVoices.find(v => {
+
+  // Tier 1: Microsoft Online Natural (Edge neural voices — best quality)
+  const natural = all.filter(v => v.lang.startsWith('en') && (v.name.includes('Online') || v.name.includes('Natural')))
+  const femaleNatural = ['aria','jenny','michelle','elizabeth','ana','amber','ashley','cora','elizabeth','jane','nancy','sara']
+  const maleNatural   = ['guy','eric','ryan','christopher','eric','jason','roger','steffan','tony','davis','andrew']
+  const naturalMatch  = natural.find(v => {
     const n = v.name.toLowerCase()
-    return female ? (n.includes('female') || n.includes('zira') || n.includes('hazel') || n.includes('susan') || n.includes('victoria') || n.includes('samantha'))
-                  : (n.includes('male') || n.includes('david') || n.includes('mark') || n.includes('daniel') || n.includes('alex'))
+    return female ? femaleNatural.some(nm => n.includes(nm)) : maleNatural.some(nm => n.includes(nm))
+  }) ?? natural[0]
+  if (naturalMatch) return naturalMatch
+
+  // Tier 2: Any English voice matching gender heuristic
+  const en = all.filter(v => v.lang.startsWith('en'))
+  const genderMatch = en.find(v => {
+    const n = v.name.toLowerCase()
+    return female ? (n.includes('zira') || n.includes('hazel') || n.includes('susan') || n.includes('samantha') || n.includes('victoria') || n.includes('female'))
+                  : (n.includes('david') || n.includes('mark') || n.includes('daniel') || n.includes('alex') || n.includes('male'))
   })
-  return genderMatch ?? enVoices[0]
+  return genderMatch ?? en[0] ?? all[0]
 }
 
 export function TTSPanel({ text, onClose }: { text: string; onClose: () => void }) {
@@ -56,6 +68,7 @@ export function TTSPanel({ text, onClose }: { text: string; onClose: () => void 
   const voiceRef   = useRef(voice)
   const speedRef   = useRef(speed)
   const engineRef  = useRef<Engine>(null)
+  const savedIdxRef = useRef(0) // remembers position across stops
 
   stageRef.current  = stage
   voiceRef.current  = voice
@@ -157,10 +170,11 @@ export function TTSPanel({ text, onClose }: { text: string; onClose: () => void 
     }
   }, [])
 
-  function stop(resetIdx = true) {
+  function stop(resetToStart = false) {
     try { sourceNode.current?.stop() } catch {}
     speechSynthesis.cancel()
-    if (resetIdx) setIdx(0)
+    if (resetToStart) { setIdx(0); savedIdxRef.current = 0 }
+    else savedIdxRef.current = idx
     setStage('idle')
   }
 
@@ -210,7 +224,6 @@ export function TTSPanel({ text, onClose }: { text: string; onClose: () => void 
           <select
             value={voice}
             onChange={e => setVoice(e.target.value)}
-            disabled={isActive}
             className="text-[0.72rem] px-2 py-1.5 rounded-lg flex-1"
             style={{ background: '#1C1915', border: '1px solid #2E2820', color: '#A8947C', outline: 'none' }}
           >
@@ -256,7 +269,7 @@ export function TTSPanel({ text, onClose }: { text: string; onClose: () => void 
               </button>
             ) : (
               <button
-                onClick={() => playFrom(stage === 'paused' ? idx : 0)}
+                onClick={() => playFrom(stage === 'paused' ? idx : savedIdxRef.current)}
                 disabled={stage === 'loading' || !text.trim()}
                 className="w-12 h-12 flex items-center justify-center rounded-full"
                 style={{ background: '#C8852A', color: '#0C0B09', opacity: (stage === 'loading' || !text.trim()) ? 0.5 : 1 }}

@@ -80,6 +80,7 @@ export function ComicReader({ comic }: { comic: ComicRow }) {
 
     ;(async () => {
       try {
+        setLoadingPct(5)
         const buf = await getBookFile(comic.id)
         if (!buf) throw new Error('Comic file not in local storage — add it again.')
 
