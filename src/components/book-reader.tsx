@@ -339,7 +339,7 @@ export function BookReader({ book }: { book: BookRow }) {
             const cv    = document.createElement('canvas')
             cv.width    = vp.width
             cv.height   = vp.height
-            await p1.render({ canvasContext: cv.getContext('2d')!, viewport: vp }).promise
+            await p1.render({ canvasContext: cv.getContext('2d')!, viewport: vp, canvas: cv }).promise
             const thumb = cv.toDataURL('image/jpeg', 0.75)
             await supabase.from('book_metadata').update({ cover_data: thumb }).eq('id', book.id)
           } catch {}
