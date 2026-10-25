@@ -25,7 +25,8 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Unauthenticated hitting app routes → login
-  if (!user && pathname.startsWith('/app')) {
+  const protectedPrefixes = ['/app', '/reader', '/comics', '/habits', '/settings']
+  if (!user && protectedPrefixes.some(p => pathname === p || pathname.startsWith(p + '/'))) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
@@ -38,5 +39,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/app/:path*', '/login', '/signup'],
+  matcher: ['/app/:path*', '/reader/:path*', '/comics/:path*', '/habits/:path*', '/settings/:path*', '/login', '/signup'],
 }

@@ -31,7 +31,7 @@ function ComicCover({ comic, idx }: { comic: Comic; idx: number }) {
 
   return (
     <Link
-      href={`/app/comics/${comic.id}`}
+      href={`/comics/${comic.id}`}
       className="group cursor-pointer block"
       style={{ animation: `fade-in 200ms ease ${idx * 40}ms both` }}
     >

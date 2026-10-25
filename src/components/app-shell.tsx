@@ -16,7 +16,7 @@ const NAV = [
     ),
   },
   {
-    href: '/app/reader',
+    href: '/reader',
     label: 'Now Playing',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-5 h-5">
@@ -26,7 +26,7 @@ const NAV = [
     ),
   },
   {
-    href: '/app/comics',
+    href: '/comics',
     label: 'Comics',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-5 h-5">
@@ -38,7 +38,7 @@ const NAV = [
     ),
   },
   {
-    href: '/app/habits',
+    href: '/habits',
     label: 'Habits',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-5 h-5">
@@ -47,7 +47,7 @@ const NAV = [
     ),
   },
   {
-    href: '/app/settings',
+    href: '/settings',
     label: 'Settings',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-5 h-5">
