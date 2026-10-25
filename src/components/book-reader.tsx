@@ -196,6 +196,10 @@ export function BookReader({ book }: { book: BookRow }) {
   const [progress,     setProgress]     = useState(book.progress_pct ?? 0)
   const [ttsText,      setTtsText]      = useState('')
   const [showTTS,      setShowTTS]      = useState(false)
+  const [ttsAutoPlay,  setTtsAutoPlay]  = useState(0)
+  const chapterIdxRef  = useRef(0)
+
+  useEffect(() => { chapterIdxRef.current = chapterIdx }, [chapterIdx])
 
   useEffect(() => { markTodayRead() }, [])
 
@@ -228,9 +232,17 @@ export function BookReader({ book }: { book: BookRow }) {
     setTtsText(text)
     setPageLabel(`Ch ${idx + 1} / ${chapters.length}`)
     await saveProgress((idx / Math.max(1, chapters.length - 1)) * 100)
-    // Scroll iframe to top
     setTimeout(() => iframeRef.current?.contentWindow?.scrollTo(0, 0), 100)
   }, [])
+
+  // Called by TTSPanel when it finishes reading a chapter — advance and auto-play next
+  const onTTSEnd = useCallback(async () => {
+    const next = chapterIdxRef.current + 1
+    if (next < chaptersRef.current.length) {
+      await goToChapter(next)
+      setTtsAutoPlay(c => c + 1)
+    }
+  }, [goToChapter])
 
   useEffect(() => {
     if (book.format !== 'epub') return
@@ -522,8 +534,8 @@ export function BookReader({ book }: { book: BookRow }) {
         )}
       </div>
 
-      {/* Bottom nav */}
-      {!loading && !error && isReader && (
+      {/* Bottom nav — hidden when TTS open (TTS has its own chapter nav) */}
+      {!loading && !error && isReader && !showTTS && (
         <div className="flex items-center gap-4 px-5 py-4 border-t shrink-0" style={{ borderColor: '#2E2820', background: '#131210' }}>
           <button onClick={goPrev} className="w-10 h-10 flex items-center justify-center rounded-xl shrink-0" style={{ background: '#1C1915', color: '#A8947C' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
@@ -542,7 +554,16 @@ export function BookReader({ book }: { book: BookRow }) {
 
       {/* TTS panel */}
       {showTTS && (
-        <TTSPanel text={ttsText} onClose={() => setShowTTS(false)} />
+        <TTSPanel
+          text={ttsText}
+          onClose={() => setShowTTS(false)}
+          onEnd={onTTSEnd}
+          autoPlay={ttsAutoPlay}
+          onPrev={goPrev}
+          onNext={goNext}
+          canPrev={book.format === 'epub' ? chapterIdx > 0 : pdfPage > 1}
+          canNext={book.format === 'epub' ? chapterIdx < chapterTotal - 1 : pdfPage < pdfTotal}
+        />
       )}
     </div>
   )
