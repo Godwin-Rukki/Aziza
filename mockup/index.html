@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<!--
+  THESIS: Aziza brings the sacred forest's knowledge to you — the interface is not a library, it is a shrine.
+  OWN-WORLD: Near-black #0C0B09 ground. Amber-gold #C8852A primary. Deep forest #1E3022 secondary.
+    Warm white #F0E8D8 text. Spectral for body, Yeseva One for display. No glass. No neon. No gradients.
+  STORY: You open Aziza. The forest receives you. Every book is a voice. You listen in the dark.
+  FIRST VIEWPORT: Library — shrine-dark ground, book covers glowing from the shelf, gold progress rings, amber sidebar.
+  FORM: Shrine/altar aesthetic — objects of meaning presented in deep darkness with warm amber light.
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aziza — Listen to your books</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Yeseva+One&family=Karla:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── TOKENS ───────────────────────────────────── */
+:root {
+  --bg:          #0C0B09;
+  --bg-2:        #131210;
+  --bg-3:        #1C1915;
+  --bg-4:        #252118;
+  --border:      #2E2820;
+  --border-2:    #3A3128;
+
+  --gold:        #C8852A;
+  --gold-light:  #E09A40;
+  --gold-dim:    #7A5018;
+  --gold-tint:   rgba(200,133,42,0.12);
+  --gold-tint2:  rgba(200,133,42,0.06);
+
+  --forest:      #1E3022;
+  --forest-2:    #2C4A30;
+  --forest-acc:  #4A8050;
+
+  --text-1:      #F0E8D8;
+  --text-2:      #A8947C;
+  --text-3:      #6A5840;
+  --text-inv:    #0C0B09;
+
+  --danger:      #C4442A;
+  --danger-dim:  rgba(196,68,42,0.15);
+
+  --r-sm:        6px;
+  --r-md:        12px;
+  --r-lg:        18px;
+  --r-xl:        24px;
+
+  --shadow-sm:   2px 4px 12px rgba(0,0,0,0.5);
+  --shadow-md:   4px 8px 24px rgba(0,0,0,0.6);
+  --shadow-gold: 0 2px 20px rgba(200,133,42,0.18);
+
+  --sidebar-w:   240px;
+  --nav-h:       64px;
+}
+
+/* ── RESET ────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; }
+body {
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: 'Karla', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── GRAIN TEXTURE ────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+  background-repeat: repeat;
+}
+
+/* ── KEYFRAMES ────────────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+@keyframes slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 2px 20px rgba(200,133,42,0.18); }
+  50%       { box-shadow: 0 2px 32px rgba(200,133,42,0.38); }
+}
+
+.screen.active { animation: fade-in 200ms ease both; }
+
+/* Browser surfaces */
+::selection       { background: var(--gold); color: var(--text-inv); }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-2); }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--gold-dim); }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: var(--r-sm); }
+
+/* ── TYPOGRAPHY ───────────────────────────────── */
+.display    { font-family: 'Yeseva One', serif; letter-spacing: -0.02em; line-height: 1.1; }
+.serif      { font-family: 'Spectral', serif; }
+.label      { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-2); font-weight: 500; }
+
+/* ── LAYOUT ───────────────────────────────────── */
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform 250ms cubic-bezier(0.16,1,0.3,1);
+}
+.sidebar-logo {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo-mark {
+  width: 36px; height: 36px;
+  background: var(--gold);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Yeseva One', serif;
+  font-size: 1.1rem;
+  color: var(--text-inv);
+  flex-shrink: 0;
+  box-shadow: var(--shadow-gold);
+  animation: glow-pulse 3s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+.logo-mark::after {
+  content: '';
+  position: absolute;
+  top: -50%; left: -50%;
+  width: 60%; height: 200%;
+  background: rgba(255,255,255,0.12);
+  transform: rotate(25deg);
+}
+.logo-name {
+  font-family: 'Yeseva One', serif;
+  font-size: 1.25rem;
+  color: var(--text-1);
+  letter-spacing: 0.04em;
+}
+.logo-sub {
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--text-2);
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: background 150ms, color 150ms;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+.nav-item:hover  { background: var(--bg-3); color: var(--text-1); }
+.nav-item.active { background: var(--gold-tint); color: var(--gold-light); }
+.nav-icon { width: 20px; height: 20px; flex-shrink: 0; opacity: 0.7; }
+.nav-item.active .nav-icon { opacity: 1; }
+
+.sidebar-footer {
+  padding: 16px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.avatar {
+  width: 32px; height: 32px;
+  background: var(--forest-2);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.8rem; font-weight: 600; color: var(--forest-acc);
+  flex-shrink: 0;
+}
+.avatar-name { font-size: 0.85rem; font-weight: 500; color: var(--text-1); }
+.avatar-email { font-size: 0.7rem; color: var(--text-3); }
+
+/* Main */
+.main {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Screen */
+.screen { display: none; flex: 1; flex-direction: column; }
+.screen.active { display: flex; }
+
+/* Mobile nav */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+  padding: 8px 0 env(safe-area-inset-bottom, 8px);
+  z-index: 100;
+}
+.mobile-nav-inner {
+  display: flex;
+  justify-content: space-around;
+}
+.mobile-nav-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 6px 16px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-3); font-size: 0.6rem; letter-spacing: 0.08em;
+  text-transform: uppercase; font-family: 'Karla', sans-serif;
+  transition: color 150ms;
+}
+.mobile-nav-btn.active { color: var(--gold); }
+.mobile-nav-btn svg { width: 22px; height: 22px; }
+
+.mobile-header {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0;
+  background: var(--bg);
+  z-index: 50;
+}
+
+/* ── PAGE HEADER ──────────────────────────────── */
+.page-header {
+  padding: 28px 32px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.page-title {
+  font-family: 'Yeseva One', serif;
+  font-size: 1.8rem;
+  color: var(--text-1);
+  line-height: 1.1;
+}
+.page-sub { font-size: 0.85rem; color: var(--text-2); margin-top: 4px; }
+
+/* ── BUTTONS ──────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 18px;
+  border-radius: var(--r-md);
+  font-size: 0.875rem; font-weight: 600;
+  cursor: pointer; border: none;
+  transition: opacity 150ms, transform 100ms;
+  font-family: 'Karla', sans-serif;
+}
+.btn:active { transform: scale(0.97); }
+.btn-gold  { background: var(--gold); color: var(--text-inv); }
+.btn-gold:hover { background: var(--gold-light); }
+.btn-ghost { background: var(--bg-3); color: var(--text-1); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--bg-4); }
+.btn-sm    { padding: 6px 12px; font-size: 0.8rem; border-radius: var(--r-sm); }
+.btn-icon  { padding: 8px; border-radius: var(--r-md); background: var(--bg-3); border: 1px solid var(--border); color: var(--text-2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.btn-icon:hover { color: var(--text-1); background: var(--bg-4); }
+
+/* ── SEARCH ───────────────────────────────────── */
+.search-wrap {
+  position: relative; display: flex; align-items: center;
+}
+.search-wrap svg {
+  position: absolute; left: 12px; width: 16px; height: 16px;
+  color: var(--text-3); pointer-events: none;
+}
+.search-input {
+  background: var(--bg-3); border: 1px solid var(--border);
+  color: var(--text-1); font-family: 'Karla', sans-serif;
+  font-size: 0.875rem; padding: 9px 12px 9px 36px;
+  border-radius: var(--r-md); width: 240px;
+  transition: border-color 150ms, width 200ms;
+}
+.search-input::placeholder { color: var(--text-3); }
+.search-input:focus { border-color: var(--gold); outline: none; width: 280px; }
+
+/* ── LIBRARY SCREEN ───────────────────────────── */
+#screen-library .content { padding: 28px 32px; }
+
+.section-label {
+  font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-3); font-weight: 600; margin-bottom: 16px;
+}
+
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.book-card {
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(0.16,1,0.3,1);
+}
+.book-card:hover { transform: translateY(-4px); }
+.book-card:hover .book-cover { box-shadow: 0 12px 32px rgba(0,0,0,0.7), 0 0 0 1px var(--border-2); }
+
+.book-cover {
+  width: 100%; aspect-ratio: 2/3;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 10px;
+  transition: box-shadow 180ms;
+}
+.book-cover-art {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end;
+  padding: 16px 12px;
+  position: relative;
+}
+.book-cover-title {
+  font-family: 'Yeseva One', serif;
+  font-size: 0.75rem; line-height: 1.3;
+  text-align: center; position: relative; z-index: 1;
+}
+.book-cover-author {
+  font-size: 0.6rem; letter-spacing: 0.06em;
+  text-align: center; margin-top: 4px;
+  opacity: 0.7; position: relative; z-index: 1;
+}
+
+/* Book cover designs — dark, muted, distinguished by hue not shock */
+.cover-1 { background: #1E0E06; }
+.cover-1::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:#C8852A; }
+.cover-1 .book-cover-title  { color: #E8A060; }
+.cover-1 .book-cover-author { color: #7A5030; }
+
+.cover-2 { background: #110A1E; }
+.cover-2::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:#8060B0; }
+.cover-2 .book-cover-title  { color: #C0A0E0; }
+.cover-2 .book-cover-author { color: #6040A0; }
+
+.cover-3 { background: #071408; }
+.cover-3::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:#4A8050; }
+.cover-3 .book-cover-title  { color: #80C090; }
+.cover-3 .book-cover-author { color: #3A6040; }
+
+.cover-4 { background: #140E02; }
+.cover-4::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:#C0A020; }
+.cover-4 .book-cover-title  { color: #D8C060; }
+.cover-4 .book-cover-author { color: #807020; }
+
+.cover-5 { background: #160404; }
+.cover-5::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:#C0402A; }
+.cover-5 .book-cover-title  { color: #E07060; }
+.cover-5 .book-cover-author { color: #803020; }
+
+.cover-6 { background: #040A14; }
+.cover-6::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:#4080B0; }
+.cover-6 .book-cover-title  { color: #70A8D8; }
+.cover-6 .book-cover-author { color: #305880; }
+
+.book-progress-wrap { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.progress-bar {
+  flex: 1; height: 3px;
+  background: var(--bg-4); border-radius: 2px; overflow: hidden;
+}
+.progress-fill { height: 100%; background: var(--gold); border-radius: 2px; }
+.progress-pct { font-size: 0.65rem; color: var(--text-3); min-width: 28px; text-align: right; }
+
+.book-meta-title { font-size: 0.82rem; font-weight: 600; color: var(--text-1); line-height: 1.3; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.book-meta-author { font-size: 0.72rem; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Currently listening */
+.now-playing-bar {
+  margin: 0 32px 28px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r-lg);
+  padding: 16px 20px;
+  display: flex; align-items: center; gap: 16px;
+  cursor: pointer;
+  transition: background 150ms;
+}
+.now-playing-bar:hover { background: var(--bg-4); }
+.np-cover {
+  width: 44px; height: 66px;
+  border-radius: 6px; overflow: hidden; flex-shrink: 0;
+}
+.np-info { flex: 1; min-width: 0; }
+.np-label { font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.np-pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); animation: pulse-dot 1.4s ease-in-out infinite; display: inline-block; }
+.np-title { font-family: 'Yeseva One', serif; font-size: 1rem; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-author { font-size: 0.78rem; color: var(--text-2); }
+.np-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* Play button */
+.play-btn {
+  width: 40px; height: 40px;
+  background: var(--gold);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: none; cursor: pointer;
+  transition: transform 150ms, background 150ms;
+  box-shadow: var(--shadow-gold);
+}
+.play-btn:hover { background: var(--gold-light); transform: scale(1.06); }
+.play-btn svg { width: 18px; height: 18px; color: var(--text-inv); margin-left: 2px; }
+
+/* ── READER SCREEN ────────────────────────────── */
+#screen-reader {
+  background: var(--bg);
+}
+.reader-top {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  position: sticky; top: 0; z-index: 20;
+}
+.reader-title { font-family: 'Spectral', serif; font-size: 0.95rem; color: var(--text-2); flex: 1; text-align: center; }
+.reader-chapter { font-size: 0.72rem; color: var(--text-3); text-align: center; margin-top: 2px; font-family: 'Karla', sans-serif; }
+
+.reader-body {
+  flex: 1; overflow-y: auto;
+  padding: 48px 32px;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+.reader-text {
+  font-family: 'Spectral', serif;
+  font-size: 1.1rem; line-height: 1.85;
+  color: var(--text-1);
+  letter-spacing: 0.01em;
+}
+.reader-text p { margin-bottom: 1.4em; }
+.reader-text .highlight {
+  background: rgba(200,133,42,0.25);
+  border-radius: 3px;
+  padding: 1px 2px;
+  color: var(--gold-light);
+}
+.reader-text .spoken {
+  background: rgba(200,133,42,0.12);
+  border-radius: 3px;
+}
+.drop-cap::first-letter {
+  font-family: 'Yeseva One', serif;
+  font-size: 3.8em;
+  float: left;
+  line-height: 0.8;
+  margin: 0.06em 0.1em 0 0;
+  color: var(--gold);
+}
+
+.reader-bottom {
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+  padding: 16px 24px;
+  position: sticky; bottom: 0;
+}
+.reader-progress { height: 2px; background: var(--bg-4); border-radius: 1px; margin-bottom: 14px; cursor: pointer; }
+.reader-progress-fill { height: 100%; width: 32%; background: var(--gold); border-radius: 1px; }
+
+.reader-controls {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.rc-left, .rc-right { display: flex; align-items: center; gap: 8px; }
+.rc-center { display: flex; align-items: center; gap: 16px; }
+
+.speed-btn {
+  padding: 5px 10px; border-radius: var(--r-sm);
+  background: var(--bg-3); border: 1px solid var(--border);
+  color: var(--text-2); font-size: 0.75rem; font-weight: 600;
+  cursor: pointer; font-family: 'Karla', sans-serif;
+  transition: background 150ms;
+}
+.speed-btn:hover { background: var(--bg-4); color: var(--text-1); }
+
+.voice-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: var(--r-sm);
+  background: var(--gold-tint); border: 1px solid var(--gold-dim);
+  color: var(--gold); font-size: 0.75rem; font-weight: 500;
+  cursor: pointer; transition: background 150ms;
+}
+.voice-chip:hover { background: rgba(200,133,42,0.2); }
+.voice-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+
+/* ── TTS PANEL (slide-up) ─────────────────────── */
+.tts-panel-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  z-index: 200; display: none; align-items: flex-end;
+}
+.tts-panel-overlay.open { display: flex; }
+.tts-panel {
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  width: 100%; max-width: 640px;
+  margin: 0 auto;
+  padding: 20px 24px 32px;
+  max-height: 80vh; overflow-y: auto;
+  box-shadow: 0 -8px 40px rgba(0,0,0,0.7);
+}
+.tts-panel-overlay.open .tts-panel {
+  animation: slide-up 280ms cubic-bezier(0.16,1,0.3,1) both;
+}
+.tts-drag { width: 36px; height: 4px; background: var(--border-2); border-radius: 2px; margin: 0 auto 20px; }
+.tts-panel-title { font-family: 'Yeseva One', serif; font-size: 1.2rem; color: var(--text-1); margin-bottom: 4px; }
+.tts-panel-book { font-size: 0.8rem; color: var(--text-3); margin-bottom: 24px; }
+
+.tts-speed-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 24px;
+}
+.tts-speed-btn {
+  flex: 1; padding: 8px; border-radius: var(--r-md);
+  background: var(--bg-3); border: 1px solid var(--border);
+  color: var(--text-2); font-size: 0.8rem; font-weight: 600;
+  cursor: pointer; font-family: 'Karla', sans-serif;
+  text-align: center; transition: background 150ms, color 150ms;
+}
+.tts-speed-btn.active { background: var(--gold-tint); color: var(--gold); border-color: var(--gold-dim); }
+
+.section-divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+.voice-character-list { display: flex; flex-direction: column; gap: 12px; }
+.voice-char-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-3); border-radius: var(--r-md);
+  border: 1px solid var(--border);
+}
+.char-color { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.char-name { font-weight: 600; font-size: 0.875rem; flex: 1; }
+.char-type { font-size: 0.72rem; color: var(--text-3); }
+.voice-select {
+  background: var(--bg-4); border: 1px solid var(--border);
+  color: var(--text-1); font-family: 'Karla', sans-serif;
+  font-size: 0.8rem; padding: 5px 10px; border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.voice-select:focus { outline: none; border-color: var(--gold); }
+
+/* ── HABITS SCREEN ────────────────────────────── */
+#screen-habits .content { padding: 28px 32px; }
+
+.habits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.stat-card {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 20px;
+}
+.stat-label { font-size: 0.65rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); margin-bottom: 10px; }
+.stat-value { font-family: 'Yeseva One', serif; font-size: 2.4rem; color: var(--text-1); line-height: 1; }
+.stat-value span { font-size: 1rem; color: var(--text-2); margin-left: 4px; }
+.stat-sub { font-size: 0.78rem; color: var(--text-2); margin-top: 6px; }
+.stat-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 99px; font-size: 0.68rem; font-weight: 600; margin-top: 8px; }
+.badge-gold { background: var(--gold-tint); color: var(--gold); }
+.badge-green { background: rgba(74,128,80,0.15); color: var(--forest-acc); }
+
+.streak-flame {
+  font-size: 2rem; line-height: 1; margin-bottom: 6px;
+}
+
+.heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 8px; }
+.heat-cell {
+  aspect-ratio: 1; border-radius: 3px; background: var(--bg-4);
+  transition: background 150ms;
+}
+.heat-0 { background: var(--bg-4); }
+.heat-1 { background: rgba(200,133,42,0.2); }
+.heat-2 { background: rgba(200,133,42,0.45); }
+.heat-3 { background: var(--gold-dim); }
+.heat-4 { background: var(--gold); }
+
+.books-list { display: flex; flex-direction: column; gap: 12px; }
+.book-habit-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.bhc { width: 40px; height: 60px; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+.bh-info { flex: 1; min-width: 0; }
+.bh-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bh-author { font-size: 0.75rem; color: var(--text-3); margin-bottom: 8px; }
+.bh-progress { height: 4px; background: var(--bg-4); border-radius: 2px; overflow: hidden; }
+.bh-progress-fill { height: 100%; background: var(--gold); border-radius: 2px; }
+.bh-pct { font-size: 0.72rem; color: var(--text-2); min-width: 36px; text-align: right; flex-shrink: 0; }
+
+/* ── SETTINGS SCREEN ──────────────────────────── */
+#screen-settings .content { padding: 28px 32px; max-width: 600px; }
+
+.settings-section { margin-bottom: 32px; }
+.settings-section-title {
+  font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-3); margin-bottom: 12px; font-weight: 600;
+}
+.settings-list { display: flex; flex-direction: column; gap: 2px; }
+.setting-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--r-md); gap: 16px;
+  cursor: pointer; transition: background 150ms;
+}
+.setting-row:hover { background: var(--bg-3); }
+.setting-row:first-child { border-radius: var(--r-md) var(--r-md) var(--r-sm) var(--r-sm); }
+.setting-row:last-child  { border-radius: var(--r-sm) var(--r-sm) var(--r-md) var(--r-md); }
+.setting-row:only-child  { border-radius: var(--r-md); }
+.setting-label { font-size: 0.9rem; font-weight: 500; }
+.setting-sub { font-size: 0.75rem; color: var(--text-3); margin-top: 2px; }
+.setting-value { font-size: 0.8rem; color: var(--text-2); }
+.setting-badge { font-size: 0.7rem; padding: 3px 8px; background: var(--forest); color: var(--forest-acc); border-radius: 99px; }
+.setting-danger { color: var(--danger); }
+
+/* Toggle */
+.toggle {
+  width: 44px; height: 24px; border-radius: 12px;
+  background: var(--bg-4); border: 1px solid var(--border);
+  position: relative; cursor: pointer; transition: background 200ms;
+  flex-shrink: 0;
+}
+.toggle.on { background: var(--gold); border-color: var(--gold); }
+.toggle::after {
+  content: ''; position: absolute;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--text-1); top: 2px; left: 2px;
+  transition: transform 200ms cubic-bezier(0.16,1,0.3,1);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.toggle.on::after { transform: translateX(20px); }
+
+/* Select */
+.setting-select {
+  background: var(--bg-4); border: 1px solid var(--border);
+  color: var(--text-1); font-family: 'Karla', sans-serif;
+  font-size: 0.82rem; padding: 5px 10px; border-radius: var(--r-sm);
+}
+.setting-select:focus { outline: none; border-color: var(--gold); }
+
+/* Account card */
+.account-card {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 20px;
+  display: flex; align-items: center; gap: 16px; margin-bottom: 32px;
+}
+.account-avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: var(--forest-2); display: flex; align-items: center; justify-content: center;
+  font-family: 'Yeseva One', serif; font-size: 1.2rem; color: var(--forest-acc);
+  flex-shrink: 0;
+}
+.account-name { font-weight: 600; font-size: 1rem; }
+.account-email { font-size: 0.8rem; color: var(--text-3); margin-top: 2px; }
+.account-sync { font-size: 0.72rem; color: var(--forest-acc); margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+.sync-dot { width: 6px; height: 6px; background: var(--forest-acc); border-radius: 50%; }
+
+/* ── EMPTY STATE ──────────────────────────────── */
+.empty-state {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 48px 24px; text-align: center; gap: 16px;
+}
+.empty-glyph {
+  width: 80px; height: 80px;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2rem; margin-bottom: 8px;
+}
+.empty-title { font-family: 'Yeseva One', serif; font-size: 1.3rem; color: var(--text-1); }
+.empty-sub { font-size: 0.875rem; color: var(--text-2); max-width: 280px; line-height: 1.6; }
+
+/* ── RESPONSIVE ───────────────────────────────── */
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .mobile-nav { display: block; }
+  .mobile-header { display: flex; }
+  .main { padding-bottom: 64px; }
+  .page-header { display: none; }
+  #screen-library .content { padding: 16px; }
+  #screen-habits .content { padding: 16px; }
+  #screen-settings .content { padding: 16px; }
+  .now-playing-bar { margin: 0 16px 20px; }
+  .book-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 14px; }
+  .reader-body { padding: 24px 20px; }
+  .reader-text { font-size: 1rem; }
+  .habits-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-value { font-size: 1.8rem; }
+  .tts-panel { border-radius: var(--r-xl) var(--r-xl) 0 0; }
+}
+@media (max-width: 480px) {
+  .book-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .habits-grid { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════
+     APP SHELL
+══════════════════════════════════════════════════ -->
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">A</div>
+      <div>
+        <div class="logo-name">Aziza</div>
+        <div class="logo-sub">Knowledge lives here</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" onclick="switchScreen('library')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+        </svg>
+        Library
+      </button>
+      <button class="nav-item" onclick="switchScreen('reader')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="12" cy="12" r="2"/><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
+        </svg>
+        Now Playing
+      </button>
+      <button class="nav-item" onclick="switchScreen('habits')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+        Reading Habits
+      </button>
+      <button class="nav-item" onclick="switchScreen('comics')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>
+        </svg>
+        Comics
+      </button>
+      <button class="nav-item" onclick="switchScreen('settings')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+        Settings
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="avatar">G</div>
+      <div>
+        <div class="avatar-name">Godwin</div>
+        <div class="avatar-email">goddyrukez@gmail.com</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- Mobile header -->
+    <div class="mobile-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="logo-mark" style="width:30px;height:30px;font-size:0.9rem">A</div>
+        <span class="logo-name" style="font-size:1.1rem">Aziza</span>
+      </div>
+      <button class="btn-icon" onclick="document.querySelector('.tts-panel-overlay').classList.toggle('open')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- ── LIBRARY ──────────────────────────────── -->
+    <div id="screen-library" class="screen active">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Your Library</h1>
+          <p class="page-sub">6 books · 2 in progress</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <div class="search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="search-input" placeholder="Search books…" type="search">
+          </div>
+          <button class="btn btn-gold">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Book
+          </button>
+        </div>
+      </div>
+
+      <div class="content">
+        <!-- Now playing bar -->
+        <div class="now-playing-bar" onclick="switchScreen('reader')">
+          <div class="np-cover cover-1"></div>
+          <div class="np-info">
+            <div class="np-label"><span class="np-pulse"></span> Now listening</div>
+            <div class="np-title">Things Fall Apart</div>
+            <div class="np-author">Chinua Achebe · Ch. 3 — Okonkwo's Farm</div>
+          </div>
+          <div class="np-controls">
+            <button class="btn-icon" style="border:none">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+            </button>
+            <button class="play-btn">
+              <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+            <button class="btn-icon" style="border:none">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- In Progress -->
+        <div class="section-label">Continue listening</div>
+        <div class="book-grid" style="margin-bottom:32px">
+          <!-- Book 1 -->
+          <div class="book-card" onclick="switchScreen('reader')">
+            <div class="book-cover">
+              <div class="book-cover-art cover-1">
+                <div class="book-cover-title">Things Fall Apart</div>
+                <div class="book-cover-author">Chinua Achebe</div>
+              </div>
+            </div>
+            <div class="book-progress-wrap">
+              <div class="progress-bar"><div class="progress-fill" style="width:32%"></div></div>
+              <span class="progress-pct">32%</span>
+            </div>
+            <div class="book-meta-title">Things Fall Apart</div>
+            <div class="book-meta-author">Chinua Achebe</div>
+          </div>
+          <!-- Book 2 -->
+          <div class="book-card">
+            <div class="book-cover">
+              <div class="book-cover-art cover-2">
+                <div class="book-cover-title">Purple Hibiscus</div>
+                <div class="book-cover-author">Chimamanda N. Adichie</div>
+              </div>
+            </div>
+            <div class="book-progress-wrap">
+              <div class="progress-bar"><div class="progress-fill" style="width:61%"></div></div>
+              <span class="progress-pct">61%</span>
+            </div>
+            <div class="book-meta-title">Purple Hibiscus</div>
+            <div class="book-meta-author">Chimamanda N. Adichie</div>
+          </div>
+        </div>
+
+        <!-- All books -->
+        <div class="section-label">All books</div>
+        <div class="book-grid">
+          <div class="book-card">
+            <div class="book-cover">
+              <div class="book-cover-art cover-3">
+                <div class="book-cover-title">Season of Migration to the North</div>
+                <div class="book-cover-author">Tayeb Salih</div>
+              </div>
+            </div>
+            <div class="book-progress-wrap">
+              <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+              <span class="progress-pct">New</span>
+            </div>
+            <div class="book-meta-title">Season of Migration</div>
+            <div class="book-meta-author">Tayeb Salih</div>
+          </div>
+          <div class="book-card">
+            <div class="book-cover">
+              <div class="book-cover-art cover-4">
+                <div class="book-cover-title">African Mythology</div>
+                <div class="book-cover-author">Jan Knappert</div>
+              </div>
+            </div>
+            <div class="book-progress-wrap">
+              <div class="progress-bar"><div class="progress-fill" style="width:18%"></div></div>
+              <span class="progress-pct">18%</span>
+            </div>
+            <div class="book-meta-title">African Mythology</div>
+            <div class="book-meta-author">Jan Knappert</div>
+          </div>
+          <div class="book-card">
+            <div class="book-cover">
+              <div class="book-cover-art cover-5">
+                <div class="book-cover-title">This is Not Propaganda</div>
+                <div class="book-cover-author">Peter Pomerantsev</div>
+              </div>
+            </div>
+            <div class="book-progress-wrap">
+              <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+              <span class="progress-pct">New</span>
+            </div>
+            <div class="book-meta-title">This is Not Propaganda</div>
+            <div class="book-meta-author">Peter Pomerantsev</div>
+          </div>
+          <div class="book-card">
+            <div class="book-cover">
+              <div class="book-cover-art cover-6">
+                <div class="book-cover-title">An African in Greenland</div>
+                <div class="book-cover-author">Tété-Michel Kpomassie</div>
+              </div>
+            </div>
+            <div class="book-progress-wrap">
+              <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+              <span class="progress-pct">New</span>
+            </div>
+            <div class="book-meta-title">An African in Greenland</div>
+            <div class="book-meta-author">Tété-Michel Kpomassie</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── READER ───────────────────────────────── -->
+    <div id="screen-reader" class="screen" style="height:100vh">
+      <div class="reader-top">
+        <button class="btn-icon" onclick="switchScreen('library')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div style="flex:1;text-align:center">
+          <div class="reader-title">Things Fall Apart</div>
+          <div class="reader-chapter">Chapter 3 · Okonkwo's Farm</div>
+        </div>
+        <button class="btn-icon" onclick="document.querySelector('.tts-panel-overlay').classList.add('open')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/>
+          </svg>
+        </button>
+        <button class="btn-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="reader-body">
+        <div class="reader-text">
+          <p class="drop-cap">Okonkwo did not have the start in life which many young men usually had. He did not inherit a barn from his father. There was no barn to inherit. The story was told in Umuofia, of how his father, Unoka, had gone to consult the Oracle of the Hills and the Caves to find out why he always had a miserable harvest.</p>
+
+          <p>The Oracle was called Agbala, and people came from far and near to consult it. They came when misfortune dogged their steps or when they had a dispute with their neighbours. They came to discover what the future held for them or to consult the spirits of their departed fathers.</p>
+
+          <p><span class="highlight">"The law of Umuofia is that if a man kills a clansman his punishment is exile for seven years."</span> The ill-fated lad was called Ikemefuna. No one in Umuofia had ever heard of such a case before and people were still talking about it when Okonkwo was told to look after the boy until the clan had decided what to do with him.</p>
+
+          <p class="spoken">He had a slight stammer and whenever he was angry and could not get his words out quickly enough, he would use his fists. He had no patience with unsuccessful men. He had had no patience with his father.</p>
+
+          <p>Fortunately, among these people a man was judged according to his worth and not according to the worth of his father. Okonkwo was clearly cut out for great things. He was still young but he had won fame as the greatest wrestler in the nine villages. He was a wealthy farmer and had two barns full of yams, and had just married his third wife.</p>
+        </div>
+      </div>
+
+      <div class="reader-bottom">
+        <div class="reader-progress" title="32% complete">
+          <div class="reader-progress-fill"></div>
+        </div>
+        <div class="reader-controls">
+          <div class="rc-left">
+            <div class="voice-chip" onclick="document.querySelector('.tts-panel-overlay').classList.add('open')">
+              <div class="voice-dot"></div>
+              Narrator · Warm
+            </div>
+          </div>
+          <div class="rc-center">
+            <button class="btn-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+            </button>
+            <button class="play-btn" style="width:48px;height:48px">
+              <svg viewBox="0 0 24 24" fill="currentColor" style="width:20px;height:20px;margin-left:2px"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </button>
+            <button class="btn-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+            </button>
+          </div>
+          <div class="rc-right">
+            <button class="speed-btn">1.0×</button>
+            <button class="btn-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HABITS ────────────────────────────────── -->
+    <div id="screen-habits" class="screen">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Reading Habits</h1>
+          <p class="page-sub">Your listening journey</p>
+        </div>
+      </div>
+      <div class="content">
+        <div class="habits-grid">
+          <!-- Streak -->
+          <div class="stat-card" style="border-top:2px solid var(--gold)">
+            <div class="stat-label">Current streak</div>
+            <div class="streak-flame">🔥</div>
+            <div class="stat-value">14 <span>days</span></div>
+            <div class="stat-badge badge-gold">Best: 21 days</div>
+          </div>
+          <!-- Today -->
+          <div class="stat-card">
+            <div class="stat-label">Today</div>
+            <div class="stat-value">47 <span>min</span></div>
+            <div class="stat-sub">Goal: 30 min · Done</div>
+            <div class="stat-badge badge-green">✓ Goal met</div>
+          </div>
+          <!-- This week -->
+          <div class="stat-card">
+            <div class="stat-label">This week</div>
+            <div class="stat-value">4.2 <span>hr</span></div>
+            <div class="stat-sub">Mon–Sun average</div>
+          </div>
+          <!-- Books finished -->
+          <div class="stat-card">
+            <div class="stat-label">Books finished</div>
+            <div class="stat-value">8</div>
+            <div class="stat-sub">Since you started</div>
+          </div>
+        </div>
+
+        <!-- Weekly heatmap -->
+        <div class="stat-card" style="margin-bottom:24px">
+          <div class="stat-label" style="margin-bottom:12px">Activity — last 4 weeks</div>
+          <div style="display:flex;gap:4px;align-items:flex-start">
+            <div style="display:flex;flex-direction:column;gap:4px;margin-right:4px">
+              <div style="font-size:0.55rem;color:var(--text-3);height:14px;line-height:14px">M</div>
+              <div style="font-size:0.55rem;color:var(--text-3);height:14px;line-height:14px">T</div>
+              <div style="font-size:0.55rem;color:var(--text-3);height:14px;line-height:14px">W</div>
+              <div style="font-size:0.55rem;color:var(--text-3);height:14px;line-height:14px">T</div>
+              <div style="font-size:0.55rem;color:var(--text-3);height:14px;line-height:14px">F</div>
+              <div style="font-size:0.55rem;color:var(--text-3);height:14px;line-height:14px">S</div>
+              <div style="font-size:0.55rem;color:var(--text-3);height:14px;line-height:14px">S</div>
+            </div>
+            <div style="display:grid;grid-template-rows:repeat(7,14px);grid-auto-flow:column;grid-auto-columns:14px;gap:4px;flex:1">
+              <!-- 28 cells, col by col -->
+              <div class="heat-cell heat-2"></div><div class="heat-cell heat-3"></div><div class="heat-cell heat-1"></div><div class="heat-cell heat-4"></div><div class="heat-cell heat-2"></div><div class="heat-cell heat-0"></div><div class="heat-cell heat-3"></div>
+              <div class="heat-cell heat-1"></div><div class="heat-cell heat-2"></div><div class="heat-cell heat-4"></div><div class="heat-cell heat-3"></div><div class="heat-cell heat-1"></div><div class="heat-cell heat-2"></div><div class="heat-cell heat-0"></div>
+              <div class="heat-cell heat-3"></div><div class="heat-cell heat-4"></div><div class="heat-cell heat-2"></div><div class="heat-cell heat-1"></div><div class="heat-cell heat-3"></div><div class="heat-cell heat-1"></div><div class="heat-cell heat-2"></div>
+              <div class="heat-cell heat-4"></div><div class="heat-cell heat-3"></div><div class="heat-cell heat-4"></div><div class="heat-cell heat-2"></div><div class="heat-cell heat-4"></div><div class="heat-cell heat-1"></div><div class="heat-cell heat-0"></div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:12px;justify-content:flex-end">
+            <span style="font-size:0.65rem;color:var(--text-3)">Less</span>
+            <div style="width:12px;height:12px;border-radius:2px" class="heat-0"></div>
+            <div style="width:12px;height:12px;border-radius:2px" class="heat-1"></div>
+            <div style="width:12px;height:12px;border-radius:2px" class="heat-2"></div>
+            <div style="width:12px;height:12px;border-radius:2px" class="heat-3"></div>
+            <div style="width:12px;height:12px;border-radius:2px" class="heat-4"></div>
+            <span style="font-size:0.65rem;color:var(--text-3)">More</span>
+          </div>
+        </div>
+
+        <!-- In progress books -->
+        <div class="section-label">In progress</div>
+        <div class="books-list">
+          <div class="book-habit-row">
+            <div class="bhc cover-1"></div>
+            <div class="bh-info">
+              <div class="bh-title">Things Fall Apart</div>
+              <div class="bh-author">Chinua Achebe</div>
+              <div class="bh-progress"><div class="bh-progress-fill" style="width:32%"></div></div>
+            </div>
+            <div class="bh-pct">32%</div>
+          </div>
+          <div class="book-habit-row">
+            <div class="bhc cover-2"></div>
+            <div class="bh-info">
+              <div class="bh-title">Purple Hibiscus</div>
+              <div class="bh-author">Chimamanda N. Adichie</div>
+              <div class="bh-progress"><div class="bh-progress-fill" style="width:61%"></div></div>
+            </div>
+            <div class="bh-pct">61%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SETTINGS ──────────────────────────────── -->
+    <div id="screen-settings" class="screen">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Settings</h1>
+          <p class="page-sub">Preferences & account</p>
+        </div>
+      </div>
+      <div class="content">
+
+        <div class="account-card">
+          <div class="account-avatar">G</div>
+          <div style="flex:1">
+            <div class="account-name">Godwin Idiovo</div>
+            <div class="account-email">goddyrukez@gmail.com</div>
+            <div class="account-sync"><div class="sync-dot"></div> Synced across devices · Just now</div>
+          </div>
+          <button class="btn btn-ghost btn-sm">Sign out</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Listening</div>
+          <div class="settings-list">
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Default voice</div>
+                <div class="setting-sub">Narrator voice for new books</div>
+              </div>
+              <select class="voice-select">
+                <option>Warm · af_heart</option>
+                <option>Clear · af_alloy</option>
+                <option>Deep · am_adam</option>
+                <option>Bright · bf_emma</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Playback speed</div>
+                <div class="setting-sub">Default for all books</div>
+              </div>
+              <select class="voice-select">
+                <option>1.0×</option>
+                <option>1.25×</option>
+                <option>1.5×</option>
+                <option>0.75×</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Sleep timer</div>
+                <div class="setting-sub">Auto-stop playback</div>
+              </div>
+              <select class="voice-select">
+                <option>Off</option>
+                <option>15 min</option>
+                <option>30 min</option>
+                <option>60 min</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Reading</div>
+          <div class="settings-list">
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Theme</div>
+                <div class="setting-sub">Reading surface appearance</div>
+              </div>
+              <select class="setting-select">
+                <option>Abyss (darkest)</option>
+                <option>Dark</option>
+                <option>Sepia</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Font size</div>
+              </div>
+              <select class="setting-select">
+                <option>Medium</option>
+                <option>Small</option>
+                <option>Large</option>
+                <option>X-Large</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Notifications</div>
+          <div class="settings-list">
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Daily reading reminder</div>
+                <div class="setting-sub">9:00 PM every day</div>
+              </div>
+              <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Streak alerts</div>
+                <div class="setting-sub">Remind me before I break my streak</div>
+              </div>
+              <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Data</div>
+          <div class="settings-list">
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Storage used</div>
+                <div class="setting-sub">Book files (IndexedDB)</div>
+              </div>
+              <span class="setting-value">142 MB</span>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Export reading data</div>
+                <div class="setting-sub">Bookmarks, progress, habits</div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-3)"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-label setting-danger">Clear all data</div>
+                <div class="setting-sub">Removes all books and progress</div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-3)"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align:center;padding:16px 0;color:var(--text-3);font-size:0.72rem">
+          Aziza v0.1 · Offline-first · No tracking
+        </div>
+      </div>
+    </div>
+
+    <!-- ── COMICS READER ────────────────────────── -->
+    <div id="screen-comics" class="screen" style="height:100vh;flex-direction:column">
+      <div class="reader-top">
+        <button class="btn-icon" onclick="switchScreen('library')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div style="flex:1;text-align:center">
+          <div class="reader-title">Vagabond · Vol. 1</div>
+          <div class="reader-chapter">Ep. 3 · The Demon</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-icon" style="font-size:0.72rem;padding:6px 10px">OCR</button>
+          <button class="btn-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Panel stack (simulated manhwa pages) -->
+      <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;align-items:center;gap:0;background:#0A0A0A">
+        <!-- Panel 1 — wide establishing shot -->
+        <div style="width:100%;max-width:600px;aspect-ratio:16/7;background:#181410;position:relative;overflow:hidden;border-bottom:1px solid #1A1A1A">
+          <div style="position:absolute;inset:0;background:linear-gradient(135deg,#1A1208 0%,#0A0806 100%)"></div>
+          <div style="position:absolute;bottom:16px;left:20px;right:20px">
+            <div style="background:rgba(0,0,0,0.85);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:8px 12px;font-family:'Spectral',serif;font-size:0.82rem;color:#F0E8D8;line-height:1.5">
+              <span style="color:var(--text-3);font-size:0.65rem;letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:4px">Narrator</span>
+              The year is 1600. The Battle of Sekigahara has just ended. Two survivors walk through fields of the dead.
+            </div>
+          </div>
+          <!-- Simulated character silhouettes -->
+          <div style="position:absolute;bottom:0;left:30%;width:12%;height:70%;background:linear-gradient(to bottom,#2A2010,#0A0806);clip-path:polygon(30% 0%,70% 0%,80% 100%,20% 100%)"></div>
+          <div style="position:absolute;bottom:0;left:50%;width:10%;height:55%;background:linear-gradient(to bottom,#1A1810,#0A0806);clip-path:polygon(25% 0%,75% 0%,85% 100%,15% 100%)"></div>
+        </div>
+
+        <!-- Panel 2 — dialogue close-up -->
+        <div style="width:100%;max-width:600px;aspect-ratio:4/3;background:#100E0A;position:relative;overflow:hidden;border-bottom:1px solid #1A1A1A">
+          <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 40% 40%,#2A1808 0%,#080604 60%)"></div>
+          <!-- speech bubble top-right -->
+          <div style="position:absolute;top:16px;right:16px;max-width:55%;background:rgba(240,232,216,0.95);border-radius:12px 12px 4px 12px;padding:8px 12px">
+            <span style="font-family:'Spectral',serif;font-size:0.78rem;color:#1A1408;font-weight:500;line-height:1.4">I am Shinmen Takezo. I will kill every man on this field if I have to.</span>
+          </div>
+          <!-- character face placeholder -->
+          <div style="position:absolute;bottom:0;left:10%;width:45%;height:80%;background:linear-gradient(150deg,#3A2010 0%,#100804 100%);clip-path:polygon(15% 0%,85% 0%,100% 100%,0% 100%)"></div>
+        </div>
+
+        <!-- Panel 3 — action small panels row -->
+        <div style="width:100%;max-width:600px;display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#1A1A1A;border-bottom:1px solid #1A1A1A">
+          <div style="aspect-ratio:1;background:#0E0C08;position:relative;overflow:hidden">
+            <div style="position:absolute;inset:0;background:linear-gradient(to bottom right,#2A1408,#080604)"></div>
+            <div style="position:absolute;bottom:8px;left:8px;right:8px;background:rgba(0,0,0,0.8);border-radius:3px;padding:5px 8px;font-family:'Spectral',serif;font-size:0.72rem;color:#F0E8D8">
+              <span style="color:var(--gold);font-size:0.6rem;display:block">Matahachi</span>
+              We need to run!
+            </div>
+          </div>
+          <div style="aspect-ratio:1;background:#0A0E0C;position:relative;overflow:hidden">
+            <div style="position:absolute;inset:0;background:linear-gradient(to bottom left,#0A1A10,#050806)"></div>
+            <div style="position:absolute;top:8px;right:8px;max-width:80%;background:rgba(240,232,216,0.92);border-radius:10px 10px 4px 10px;padding:5px 8px">
+              <span style="font-family:'Spectral',serif;font-size:0.7rem;color:#1A1408">I'm not done yet.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- OCR Dialogue transcript panel -->
+        <div style="width:100%;max-width:600px;background:var(--bg-2);border-top:1px solid var(--border);padding:16px 20px">
+          <div class="section-label" style="margin-bottom:12px">Detected dialogue</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <div style="width:6px;height:6px;border-radius:50%;background:var(--gold);margin-top:6px;flex-shrink:0"></div>
+              <div><span style="font-size:0.7rem;color:var(--text-3)">Narrator ·</span> <span style="font-size:0.82rem;font-family:'Spectral',serif;color:var(--text-1)">The year is 1600. The Battle of Sekigahara has just ended.</span></div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <div style="width:6px;height:6px;border-radius:50%;background:#E87860;margin-top:6px;flex-shrink:0"></div>
+              <div><span style="font-size:0.7rem;color:var(--text-3)">Takezo ·</span> <span style="font-size:0.82rem;font-family:'Spectral',serif;color:var(--text-1)">I am Shinmen Takezo. I will kill every man on this field.</span></div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <div style="width:6px;height:6px;border-radius:50%;background:#80C0E8;margin-top:6px;flex-shrink:0"></div>
+              <div><span style="font-size:0.7rem;color:var(--text-3)">Matahachi ·</span> <span style="font-size:0.82rem;font-family:'Spectral',serif;color:var(--text-1)">We need to run!</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comics bottom bar -->
+      <div style="border-top:1px solid var(--border);background:var(--bg-2);padding:12px 20px;display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="btn btn-ghost btn-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            Prev
+          </button>
+          <span style="font-size:0.78rem;color:var(--text-3)">Page 3 / 41</span>
+          <button class="btn btn-gold btn-sm">
+            Next
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+        <button class="play-btn" style="width:36px;height:36px" onclick="document.querySelector('.tts-panel-overlay').classList.add('open')">
+          <svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;margin-left:2px"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── EMPTY STATE ───────────────────────────── -->
+    <div id="screen-empty" class="screen">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;text-align:center">
+        <!-- The shrine glyph -->
+        <div style="position:relative;width:120px;height:160px;margin-bottom:32px">
+          <svg viewBox="0 0 120 160" xmlns="http://www.w3.org/2000/svg" width="120" height="160">
+            <!-- Shelf -->
+            <rect x="10" y="130" width="100" height="4" rx="2" fill="#2E2820"/>
+            <!-- Book 1 (tipped over) -->
+            <rect x="15" y="90" width="22" height="40" rx="3" fill="#3D1A0A" transform="rotate(-8, 26, 110)"/>
+            <rect x="15" y="90" width="22" height="3" rx="1" fill="#C8852A" transform="rotate(-8, 26, 110)"/>
+            <!-- Book 2 (standing) -->
+            <rect x="45" y="75" width="18" height="55" rx="2" fill="#1A0D2E"/>
+            <rect x="45" y="75" width="18" height="3" rx="1" fill="#8060A0"/>
+            <!-- Book 3 (standing, taller) -->
+            <rect x="70" y="65" width="20" height="65" rx="2" fill="#071A0C"/>
+            <rect x="70" y="65" width="20" height="3" rx="1" fill="#4A8050"/>
+            <!-- Flame / light above -->
+            <ellipse cx="60" cy="45" rx="8" ry="12" fill="#C8852A" opacity="0.2"/>
+            <ellipse cx="60" cy="48" rx="5" ry="8" fill="#C8852A" opacity="0.4"/>
+            <ellipse cx="60" cy="52" rx="3" ry="4" fill="#E09A40" opacity="0.8"/>
+            <!-- Glow ring -->
+            <circle cx="60" cy="50" r="22" fill="none" stroke="#C8852A" stroke-width="0.5" opacity="0.15"/>
+          </svg>
+        </div>
+
+        <h2 style="font-family:'Yeseva One',serif;font-size:1.6rem;color:var(--text-1);margin-bottom:10px">Your shelf awaits</h2>
+        <p style="font-size:0.9rem;color:var(--text-2);line-height:1.7;max-width:300px;margin-bottom:32px">
+          Add your first book and Aziza will give it a voice. EPUB, PDF, MOBI, or comics — the forest reads them all.
+        </p>
+
+        <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:280px">
+          <button class="btn btn-gold" style="width:100%;justify-content:center;padding:14px 20px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add your first book
+          </button>
+          <button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="switchScreen('library')">
+            Browse the demo
+          </button>
+        </div>
+
+        <div style="margin-top:40px;padding-top:24px;border-top:1px solid var(--border);width:100%;max-width:320px">
+          <div class="section-label" style="text-align:center;margin-bottom:16px">Supported formats</div>
+          <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap">
+            <span style="padding:4px 12px;background:var(--bg-2);border:1px solid var(--border);border-radius:99px;font-size:0.72rem;color:var(--text-2)">EPUB</span>
+            <span style="padding:4px 12px;background:var(--bg-2);border:1px solid var(--border);border-radius:99px;font-size:0.72rem;color:var(--text-2)">PDF</span>
+            <span style="padding:4px 12px;background:var(--bg-2);border:1px solid var(--border);border-radius:99px;font-size:0.72rem;color:var(--text-2)">MOBI</span>
+            <span style="padding:4px 12px;background:var(--bg-2);border:1px solid var(--border);border-radius:99px;font-size:0.72rem;color:var(--text-2)">CBZ</span>
+            <span style="padding:4px 12px;background:var(--bg-2);border:1px solid var(--border);border-radius:99px;font-size:0.72rem;color:var(--text-2)">CBR</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     TTS PANEL (slide-up overlay)
+══════════════════════════════════════════════════ -->
+<div class="tts-panel-overlay" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="tts-panel">
+    <div class="tts-drag"></div>
+    <div class="tts-panel-title">Voice Studio</div>
+    <div class="tts-panel-book">Things Fall Apart · Chinua Achebe</div>
+
+    <!-- Speed -->
+    <div class="section-label" style="margin-bottom:10px">Playback Speed</div>
+    <div class="tts-speed-row">
+      <button class="tts-speed-btn">0.75×</button>
+      <button class="tts-speed-btn active">1.0×</button>
+      <button class="tts-speed-btn">1.25×</button>
+      <button class="tts-speed-btn">1.5×</button>
+      <button class="tts-speed-btn">2.0×</button>
+    </div>
+
+    <div class="section-divider"></div>
+
+    <!-- Character voices -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="section-label" style="margin-bottom:0">Character Voices</div>
+      <span style="font-size:0.72rem;color:var(--text-3)">5 of 8 detected</span>
+    </div>
+
+    <div class="voice-character-list">
+      <div class="voice-char-row">
+        <div class="char-color" style="background:var(--gold)"></div>
+        <div style="flex:1">
+          <div class="char-name">Narrator</div>
+          <div class="char-type">Default · all unassigned text</div>
+        </div>
+        <select class="voice-select">
+          <option>Warm · af_heart</option>
+          <option>Clear · af_alloy</option>
+          <option>Deep · am_adam</option>
+        </select>
+      </div>
+      <div class="voice-char-row">
+        <div class="char-color" style="background:#7AC88A"></div>
+        <div style="flex:1">
+          <div class="char-name">Okonkwo</div>
+          <div class="char-type">Main character · male, strong</div>
+        </div>
+        <select class="voice-select">
+          <option>Deep · am_adam</option>
+          <option>Warm · af_heart</option>
+          <option>Clear · af_alloy</option>
+        </select>
+      </div>
+      <div class="voice-char-row">
+        <div class="char-color" style="background:#D4A8E8"></div>
+        <div style="flex:1">
+          <div class="char-name">Ezinma</div>
+          <div class="char-type">Supporting · female</div>
+        </div>
+        <select class="voice-select">
+          <option>Bright · bf_emma</option>
+          <option>Warm · af_heart</option>
+          <option>Clear · af_alloy</option>
+        </select>
+      </div>
+      <div class="voice-char-row">
+        <div class="char-color" style="background:#80C0E8"></div>
+        <div style="flex:1">
+          <div class="char-name">Unoka</div>
+          <div class="char-type">Supporting · male, elder</div>
+        </div>
+        <select class="voice-select">
+          <option>Clear · af_alloy</option>
+          <option>Deep · am_adam</option>
+          <option>Warm · af_heart</option>
+        </select>
+      </div>
+      <div class="voice-char-row">
+        <div class="char-color" style="background:var(--text-3)"></div>
+        <div style="flex:1">
+          <div class="char-name">Ikemefuna</div>
+          <div class="char-type">Supporting · male, young</div>
+        </div>
+        <select class="voice-select">
+          <option>Bright · bf_emma</option>
+          <option>Warm · af_heart</option>
+          <option>Deep · am_adam</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-top:20px">
+      <button class="btn btn-gold" style="width:100%;justify-content:center" onclick="document.querySelector('.tts-panel-overlay').classList.remove('open')">
+        Done
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     MOBILE NAV
+══════════════════════════════════════════════════ -->
+<nav class="mobile-nav">
+  <div class="mobile-nav-inner">
+    <button class="mobile-nav-btn active" onclick="switchScreen('library');setMobileActive(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+      Library
+    </button>
+    <button class="mobile-nav-btn" onclick="switchScreen('reader');setMobileActive(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="2"/><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
+      Playing
+    </button>
+    <button class="mobile-nav-btn" onclick="switchScreen('habits');setMobileActive(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Habits
+    </button>
+    <button class="mobile-nav-btn" onclick="switchScreen('settings');setMobileActive(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Settings
+    </button>
+  </div>
+</nav>
+
+<script>
+function switchScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const idx = ['library','reader','habits','comics','settings'].indexOf(id);
+  document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
+  // sync mobile nav
+  const mobileIdx = ['library','reader','habits','settings'].indexOf(id);
+  document.querySelectorAll('.mobile-nav-btn').forEach((b,i) => b.classList.toggle('active', i === mobileIdx));
+}
+
+function setMobileActive(el) {
+  document.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// Speed buttons
+document.querySelectorAll('.tts-speed-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.tts-speed-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
