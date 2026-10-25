@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getBookFile } from '@/lib/idb'
 import { createClient } from '@/lib/supabase/client'
@@ -16,22 +16,162 @@ type BookRow = {
   progress_pct: number | null
 }
 
+// ── EPUB helpers ─────────────────────────────────────────────────────────────
+
+function resolvePath(base: string, rel: string): string {
+  if (!rel || rel.startsWith('data:') || rel.startsWith('http')) return rel
+  const parts = (base + '/' + rel).split('/')
+  const out: string[] = []
+  for (const p of parts) {
+    if (p === '..') out.pop()
+    else if (p !== '.') out.push(p)
+  }
+  return out.join('/')
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((res, rej) => {
+    const r = new FileReader()
+    r.onload  = () => res(r.result as string)
+    r.onerror = rej
+    r.readAsDataURL(blob)
+  })
+}
+
+async function buildChapterHtml(
+  zip: any,
+  opfDir: string,
+  chapterHref: string,
+  fontSize: string,
+): Promise<{ html: string; text: string }> {
+  const chapterPath = opfDir ? `${opfDir}/${chapterHref}` : chapterHref
+  const chapterFile = zip.file(chapterPath) ?? zip.file(chapterHref)
+  if (!chapterFile) return { html: '<p>Chapter not found.</p>', text: '' }
+
+  let html: string = await chapterFile.async('text')
+  const chapterDir  = chapterHref.split('/').slice(0, -1).join('/')
+  const baseDir     = [opfDir, chapterDir].filter(Boolean).join('/')
+
+  // Inline linked stylesheets
+  const cssRe = /<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["'][^>]*\/?>/gi
+  for (const m of [...html.matchAll(cssRe)]) {
+    const cssPath = resolvePath(baseDir, m[1])
+    const cssFile = zip.file(cssPath)
+    if (cssFile) {
+      const css = await cssFile.async('text')
+      html = html.replace(m[0], `<style>${css}</style>`)
+    }
+  }
+  // Also handle reversed attribute order
+  const cssRe2 = /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']stylesheet["'][^>]*\/?>/gi
+  for (const m of [...html.matchAll(cssRe2)]) {
+    const cssPath = resolvePath(baseDir, m[1])
+    const cssFile = zip.file(cssPath)
+    if (cssFile) {
+      const css = await cssFile.async('text')
+      html = html.replace(m[0], `<style>${css}</style>`)
+    }
+  }
+
+  // Inline images (src and xlink:href)
+  for (const re of [
+    /(<(?:img|image)[^>]+(?:src|xlink:href)=["'])([^"'#][^"']*)(['"])/gi,
+  ]) {
+    for (const m of [...html.matchAll(re)]) {
+      const imgPath = resolvePath(baseDir, m[2])
+      const imgFile = zip.file(imgPath)
+      if (imgFile) {
+        try {
+          const blob    = await imgFile.async('blob')
+          const dataUrl = await blobToDataUrl(blob)
+          html = html.replace(m[0], `${m[1]}${dataUrl}${m[3]}`)
+        } catch {}
+      }
+    }
+  }
+
+  // Inject our layout CSS — no color overrides, book's own colors stay
+  const injectedCss = `<style>
+    img { max-width: 100% !important; height: auto !important; }
+    body { font-family: Georgia, 'Times New Roman', serif; line-height: 1.75;
+           padding: 1.2rem 1.5rem; margin: 0; font-size: ${fontSize}; }
+    p    { margin: 0 0 0.8em; }
+  </style>`
+  if (/<\/head>/i.test(html)) {
+    html = html.replace(/<\/head>/i, `${injectedCss}</head>`)
+  } else {
+    html = `<html><head>${injectedCss}</head><body>${html}</body></html>`
+  }
+
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  return { html, text }
+}
+
+async function parseEpubStructure(zip: any): Promise<{
+  opfDir: string
+  chapters: string[]
+  firstRealIdx: number
+}> {
+  // container.xml → OPF path
+  const containerXml = await zip.file('META-INF/container.xml')?.async('text') ?? ''
+  const opfPath = containerXml.match(/full-path="([^"]+)"/i)?.[1] ?? ''
+  if (!opfPath) throw new Error('Invalid EPUB: no OPF path in container.xml')
+  const opfDir  = opfPath.split('/').slice(0, -1).join('/')
+
+  const opfFile = zip.file(opfPath)
+  if (!opfFile) throw new Error('Invalid EPUB: OPF file not found')
+  const opfXml  = await opfFile.async('text')
+
+  // Build manifest: id → href
+  const manifest: Record<string, string> = {}
+  for (const m of opfXml.matchAll(/<item\s[^>]+>/gi)) {
+    const tag = m[0]
+    const id   = tag.match(/\bid="([^"]+)"/)?.[1]
+    const href = tag.match(/\bhref="([^"]+)"/)?.[1]
+    if (id && href) manifest[id] = href
+  }
+
+  // Spine: ordered idrefs
+  const chapters: string[] = []
+  for (const m of opfXml.matchAll(/<itemref[^>]+idref="([^"]+)"/gi)) {
+    const href = manifest[m[1]]
+    if (href) chapters.push(href)
+  }
+
+  if (chapters.length === 0) throw new Error('EPUB has no readable chapters.')
+
+  // Find first non-cover chapter
+  const SKIP = /cover|toc|nav|index|copyright|halftitle|title/i
+  const firstRealIdx = Math.max(0, chapters.findIndex(h => !SKIP.test(h)))
+  return { opfDir, chapters, firstRealIdx }
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export function BookReader({ book }: { book: BookRow }) {
-  const router = useRouter()
-  const epubContainerRef = useRef<HTMLDivElement>(null)
-  const canvasRef        = useRef<HTMLCanvasElement>(null)
-  const renditionRef     = useRef<any>(null)
-  const pdfDocRef        = useRef<any>(null)
-  const touchStartX      = useRef<number>(0)
-  const supabase         = createClient()
+  const router   = useRouter()
+  const canvasRef   = useRef<HTMLCanvasElement>(null)
+  const pdfDocRef   = useRef<any>(null)
+  const iframeRef   = useRef<HTMLIFrameElement>(null)
+  const currentBlobRef = useRef<string | null>(null)
+  const touchStartX = useRef<number>(0)
+  const supabase    = createClient()
+
+  // EPUB state
+  const zipRef      = useRef<any>(null)
+  const opfDirRef   = useRef('')
+  const chaptersRef = useRef<string[]>([])
 
   const [loading,      setLoading]      = useState(true)
   const [loadingPct,   setLoadingPct]   = useState(0)
   const [error,        setError]        = useState<string | null>(null)
+  const [chapterIdx,   setChapterIdx]   = useState(0)
+  const [chapterTotal, setChapterTotal] = useState(0)
+  const [iframeSrc,    setIframeSrc]    = useState<string | null>(null)
   const [pdfPage,      setPdfPage]      = useState(1)
   const [pdfTotal,     setPdfTotal]     = useState(0)
   const [pdfRendering, setPdfRendering] = useState(false)
-  const [chapterLabel, setChapterLabel] = useState('')
+  const [pageLabel,    setPageLabel]    = useState('')
   const [progress,     setProgress]     = useState(book.progress_pct ?? 0)
   const [ttsText,      setTtsText]      = useState('')
   const [showTTS,      setShowTTS]      = useState(false)
@@ -44,113 +184,98 @@ export function BookReader({ book }: { book: BookRow }) {
     await supabase.from('book_metadata').update({ progress_pct: rounded }).eq('id', book.id)
   }
 
-  // ── EPUB ──────────────────────────────────────────────────────────────────
+  // ── EPUB ────────────────────────────────────────────────────────────────────
+
+  const goToChapter = useCallback(async (idx: number) => {
+    const chapters = chaptersRef.current
+    if (idx < 0 || idx >= chapters.length) return
+    const fontSizePref = localStorage.getItem('aziza_font_size') ?? 'md'
+    const fontSize = fontSizePref === 'sm' ? '0.9em' : fontSizePref === 'lg' ? '1.2em' : '1.05em'
+
+    const { html, text } = await buildChapterHtml(
+      zipRef.current, opfDirRef.current, chapters[idx], fontSize
+    )
+
+    // Revoke previous blob URL
+    if (currentBlobRef.current) URL.revokeObjectURL(currentBlobRef.current)
+    const blob = new Blob([html], { type: 'text/html' })
+    const url  = URL.createObjectURL(blob)
+    currentBlobRef.current = url
+
+    setIframeSrc(url)
+    setChapterIdx(idx)
+    setTtsText(text)
+    setPageLabel(`Ch ${idx + 1} / ${chapters.length}`)
+    await saveProgress((idx / Math.max(1, chapters.length - 1)) * 100)
+    // Scroll iframe to top
+    setTimeout(() => iframeRef.current?.contentWindow?.scrollTo(0, 0), 100)
+  }, [])
 
   useEffect(() => {
     if (book.format !== 'epub') return
-    const epubTimeout = setTimeout(() => {
-      setError('Took too long to open. The file may be corrupted.')
+    const t = setTimeout(() => {
+      setError('Loading timed out. File may be corrupted or too large.')
       setLoading(false)
-    }, 25000)
+    }, 30000)
     ;(async () => {
       try {
-        setLoadingPct(15)
+        setLoadingPct(10)
         const buf = await getBookFile(book.id)
-        if (!buf) throw new Error('Book file not in local storage — add it again.')
-        setLoadingPct(35)
+        if (!buf) throw new Error('Book file not found locally — try uploading again.')
+        setLoadingPct(25)
 
-        const { default: ePub } = await import('epubjs')
-        const epubBook = ePub(buf as ArrayBuffer)
-
-        if (!epubContainerRef.current) return
-
-        const rendition = epubBook.renderTo(epubContainerRef.current, {
-          width: '100%',
-          height: '100%',
-          flow: 'paginated',
-          spread: 'none',
-        } as any)
-
-        renditionRef.current = rendition
-
-        rendition.hooks.content.register((contents: any) => {
-          const doc = contents.document
-          if (!doc) return
-          const style = doc.createElement('style')
-          // Don't override book colors — render as the book intends
-          const fontSizePref = localStorage.getItem('aziza_font_size') ?? 'md'
-          const fontSize = fontSizePref === 'sm' ? '0.9em' : fontSizePref === 'lg' ? '1.2em' : '1.05em'
-          style.textContent = `
-            img { max-width: 100% !important; height: auto !important; }
-            p   { line-height: 1.75 !important; font-size: ${fontSize} !important; }
-          `
-          doc.head.appendChild(style)
+        const { default: JSZip } = await import('jszip')
+        const zip = await JSZip.loadAsync(buf, {
+          onUpdate: (m: any) => setLoadingPct(25 + Math.round((m.percent ?? 0) * 0.35)),
         })
+        zipRef.current = zip
+        setLoadingPct(62)
 
-        // Skip cover/index pages — jump to first real chapter
-        const SKIP = /cover|title|toc|nav|index|copyright|halftitle/i
-        const spine = (epubBook.spine as any)
-        const spineItems: any[] = spine?.items ?? []
-        const firstChapter = spineItems.find(item => !SKIP.test(item.href ?? ''))
+        const { opfDir, chapters, firstRealIdx } = await parseEpubStructure(zip)
+        opfDirRef.current   = opfDir
+        chaptersRef.current = chapters
+        setChapterTotal(chapters.length)
         setLoadingPct(75)
-        await rendition.display(firstChapter?.href ?? undefined)
-        clearTimeout(epubTimeout)
 
-        rendition.on('relocated', (location: any) => {
-          const href = location.start?.href ?? ''
-          setChapterLabel(
-            href.split('/').pop()?.replace(/\.(x?html?)$/i, '').replace(/[-_]/g, ' ') ?? ''
-          )
-          if ((epubBook.locations as any).total > 0) {
-            const pct = (epubBook.locations as any).percentageFromCfi(location.start.cfi) * 100
-            saveProgress(pct)
-          }
-          // Extract text for TTS
-          try {
-            const contents = rendition.getContents() as unknown as any[]
-            if (contents?.length > 0) {
-              const body = contents[0].document?.body
-              if (body) setTtsText(body.innerText ?? '')
-            }
-          } catch {}
-        })
+        const startIdx = book.progress_pct && book.progress_pct < 99
+          ? Math.round((book.progress_pct / 100) * (chapters.length - 1))
+          : firstRealIdx
 
+        await goToChapter(startIdx)
+        clearTimeout(t)
         setLoadingPct(100)
         setLoading(false)
       } catch (e: any) {
-        clearTimeout(epubTimeout)
+        clearTimeout(t)
         setError(e.message ?? 'Failed to load EPUB')
         setLoading(false)
       }
     })()
+    return () => {
+      clearTimeout(t)
+      if (currentBlobRef.current) URL.revokeObjectURL(currentBlobRef.current)
+    }
   }, [])
 
-  // ── PDF ───────────────────────────────────────────────────────────────────
+  // ── PDF ─────────────────────────────────────────────────────────────────────
 
   const renderPdfPage = useCallback(async (pdf: any, pageNum: number) => {
     if (!canvasRef.current || !pdf) return
     setPdfRendering(true)
     try {
-      const page    = await pdf.getPage(pageNum)
+      const page   = await pdf.getPage(pageNum)
       const container = canvasRef.current.parentElement!
-      const scaleToFit = container.clientWidth / page.getViewport({ scale: 1 }).width
-      const vp      = page.getViewport({ scale: Math.min(scaleToFit * 0.95, 2) })
-
-      const canvas  = canvasRef.current
+      const scale  = Math.min((container.clientWidth / page.getViewport({ scale: 1 }).width) * 0.95, 2)
+      const vp     = page.getViewport({ scale })
+      const canvas = canvasRef.current
       canvas.width  = vp.width
       canvas.height = vp.height
-      const ctx     = canvas.getContext('2d')!
-
+      const ctx = canvas.getContext('2d')!
       await page.render({ canvasContext: ctx, viewport: vp, canvas }).promise
       await saveProgress((pageNum / pdf.numPages) * 100)
-
-      // Extract text for TTS
       try {
-        const textContent = await page.getTextContent()
-        const text = textContent.items
-          .map((item: any) => ('str' in item ? item.str : ''))
-          .join(' ')
-        setTtsText(text)
+        const tc = await page.getTextContent()
+        setTtsText(tc.items.map((i: any) => ('str' in i ? i.str : '')).join(' '))
       } catch {}
     } finally {
       setPdfRendering(false)
@@ -159,92 +284,90 @@ export function BookReader({ book }: { book: BookRow }) {
 
   useEffect(() => {
     if (book.format !== 'pdf') return
-    const pdfTimeout = setTimeout(() => {
-      setError('Took too long to open. The file may be corrupted.')
+    const t = setTimeout(() => {
+      setError('Loading timed out. File may be corrupted.')
       setLoading(false)
     }, 25000)
     ;(async () => {
       try {
         setLoadingPct(15)
         const buf = await getBookFile(book.id)
-        if (!buf) throw new Error('Book file not in local storage — add it again.')
+        if (!buf) throw new Error('Book file not found locally — try uploading again.')
         setLoadingPct(40)
 
         const pdfjsLib = await import('pdfjs-dist')
         pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
-
-        const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buf) })
-        loadingTask.onProgress = (p: any) => {
+        const task = pdfjsLib.getDocument({ data: new Uint8Array(buf) })
+        task.onProgress = (p: any) => {
           if (p.total) setLoadingPct(40 + Math.round((p.loaded / p.total) * 45))
         }
-        const pdf = await loadingTask.promise
-        clearTimeout(pdfTimeout)
+        const pdf = await task.promise
+        clearTimeout(t)
         pdfDocRef.current = pdf
         setPdfTotal(pdf.numPages)
+        setPageLabel(`1 / ${pdf.numPages}`)
 
         const startPage = book.progress_pct && book.progress_pct < 99
           ? Math.max(1, Math.round((book.progress_pct / 100) * pdf.numPages))
           : 1
         setPdfPage(startPage)
-
         setLoadingPct(100)
         setLoading(false)
         await renderPdfPage(pdf, startPage)
       } catch (e: any) {
-        clearTimeout(pdfTimeout)
+        clearTimeout(t)
         setError(e.message ?? 'Failed to load PDF')
         setLoading(false)
       }
     })()
   }, [])
 
-  // ── Navigation ────────────────────────────────────────────────────────────
+  // ── Navigation ───────────────────────────────────────────────────────────────
 
   const goPrev = useCallback(() => {
     if (book.format === 'epub') {
-      renditionRef.current?.prev()
+      goToChapter(chapterIdx - 1)
     } else if (book.format === 'pdf') {
       setPdfPage(p => {
         const next = Math.max(1, p - 1)
+        setPageLabel(`${next} / ${pdfTotal}`)
         renderPdfPage(pdfDocRef.current, next)
         return next
       })
     }
-  }, [book.format, renderPdfPage])
+  }, [book.format, chapterIdx, pdfTotal, goToChapter, renderPdfPage])
 
   const goNext = useCallback(() => {
     if (book.format === 'epub') {
-      renditionRef.current?.next()
+      goToChapter(chapterIdx + 1)
     } else if (book.format === 'pdf') {
       setPdfPage(p => {
         const next = Math.min(pdfTotal, p + 1)
+        setPageLabel(`${next} / ${pdfTotal}`)
         renderPdfPage(pdfDocRef.current, next)
         return next
       })
     }
-  }, [book.format, pdfTotal, renderPdfPage])
+  }, [book.format, chapterIdx, pdfTotal, goToChapter, renderPdfPage])
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
+    const h = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') goNext()
       if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   goPrev()
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
   }, [goNext, goPrev])
 
   const onTouchStart = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX }
   const onTouchEnd   = (e: React.TouchEvent) => {
-    const delta = touchStartX.current - e.changedTouches[0].clientX
-    if (Math.abs(delta) > 50) delta > 0 ? goNext() : goPrev()
+    const d = touchStartX.current - e.changedTouches[0].clientX
+    if (Math.abs(d) > 50) d > 0 ? goNext() : goPrev()
   }
 
-  const pageLabel = book.format === 'pdf' && pdfTotal > 0
-    ? `${pdfPage} / ${pdfTotal}`
-    : chapterLabel
   const isReader = ['epub', 'pdf'].includes(book.format)
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <div
@@ -258,43 +381,27 @@ export function BookReader({ book }: { book: BookRow }) {
         className="flex items-center gap-3 px-4 py-3 border-b shrink-0"
         style={{ borderColor: '#2E2820', background: '#131210' }}
       >
-        <button
-          onClick={() => router.back()}
-          className="p-2 rounded-lg shrink-0 transition-colors"
-          style={{ color: '#A8947C' }}
-          aria-label="Back to library"
-        >
+        <button onClick={() => router.back()} className="p-2 rounded-lg shrink-0" style={{ color: '#A8947C' }} aria-label="Back">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M19 12H5M12 5l-7 7 7 7"/>
           </svg>
         </button>
 
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold truncate" style={{ fontFamily: "'Yeseva One', serif" }}>
-            {book.title}
-          </div>
-          {book.author && (
-            <div className="text-[0.68rem] truncate" style={{ color: '#6A5840' }}>{book.author}</div>
-          )}
+          <div className="text-sm font-semibold truncate" style={{ fontFamily: "'Yeseva One', serif" }}>{book.title}</div>
+          {book.author && <div className="text-[0.68rem] truncate" style={{ color: '#6A5840' }}>{book.author}</div>}
         </div>
 
-        {pageLabel && (
-          <div className="text-[0.72rem] shrink-0 tabular-nums" style={{ color: '#6A5840' }}>
-            {pageLabel}
-          </div>
+        {pageLabel && !loading && (
+          <div className="text-[0.72rem] shrink-0 tabular-nums" style={{ color: '#6A5840' }}>{pageLabel}</div>
         )}
 
-        {/* Listen button */}
         {isReader && !loading && !error && (
           <button
             onClick={() => setShowTTS(v => !v)}
-            className="p-2 rounded-lg shrink-0 transition-colors"
-            style={{
-              background: showTTS ? 'rgba(200,133,42,0.15)' : 'transparent',
-              color: showTTS ? '#C8852A' : '#6A5840',
-            }}
-            aria-label="Toggle TTS"
-            title="Listen"
+            className="p-2 rounded-lg shrink-0"
+            style={{ background: showTTS ? 'rgba(200,133,42,0.15)' : 'transparent', color: showTTS ? '#C8852A' : '#6A5840' }}
+            aria-label="Listen"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
@@ -308,15 +415,11 @@ export function BookReader({ book }: { book: BookRow }) {
       {/* Content */}
       <div className="flex-1 relative overflow-hidden">
 
+        {/* Loading overlay */}
         {loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-8" style={{ background: '#0C0B09' }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-8 z-10" style={{ background: '#0C0B09' }}>
             {book.cover_data ? (
-              <img
-                src={book.cover_data}
-                alt={book.title}
-                className="w-24 rounded-xl shadow-2xl"
-                style={{ aspectRatio: '2/3', objectFit: 'cover', opacity: 0.85 }}
-              />
+              <img src={book.cover_data} alt={book.title} className="w-24 rounded-xl shadow-2xl" style={{ aspectRatio: '2/3', objectFit: 'cover', opacity: 0.85 }} />
             ) : (
               <div className="w-24 rounded-xl flex items-center justify-center" style={{ aspectRatio: '2/3', background: '#1C1915' }}>
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#C8852A" strokeWidth="1.2" opacity="0.5">
@@ -324,30 +427,21 @@ export function BookReader({ book }: { book: BookRow }) {
                 </svg>
               </div>
             )}
-            <div className="text-center">
-              <div className="text-base font-semibold mb-1 max-w-[220px] truncate" style={{ fontFamily: "'Yeseva One', serif", color: '#F0E8D8' }}>
-                {book.title}
+            <div className="w-full max-w-[220px] text-center">
+              <div className="text-base font-semibold mb-1 truncate" style={{ fontFamily: "'Yeseva One', serif", color: '#F0E8D8' }}>{book.title}</div>
+              <div className="h-1 rounded-full overflow-hidden mb-1.5" style={{ background: '#252118' }}>
+                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.max(5, loadingPct)}%`, background: '#C8852A' }} />
               </div>
-              <div className="w-full">
-                <div className="h-1 rounded-full overflow-hidden mb-1.5" style={{ background: '#252118' }}>
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${loadingPct || 5}%`, background: '#C8852A' }}
-                  />
-                </div>
-                <div className="text-xs text-center tabular-nums" style={{ color: '#6A5840' }}>
-                  {loadingPct < 100 ? `${loadingPct}%` : 'Ready…'}
-                </div>
-              </div>
+              <div className="text-xs tabular-nums" style={{ color: '#6A5840' }}>{loadingPct < 100 ? `${loadingPct}%` : 'Almost there…'}</div>
             </div>
           </div>
         )}
 
+        {/* Error */}
         {error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center gap-3">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#C8852A" strokeWidth="1.2" opacity="0.5">
-              <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
             <p className="text-sm" style={{ color: '#E07060' }}>{error}</p>
             <button onClick={() => router.back()} className="mt-2 px-5 py-2 rounded-xl text-sm font-medium" style={{ background: '#1C1915', color: '#A8947C' }}>
@@ -356,10 +450,18 @@ export function BookReader({ book }: { book: BookRow }) {
           </div>
         )}
 
-        {book.format === 'epub' && (
-          <div ref={epubContainerRef} className="w-full h-full" style={{ visibility: loading ? 'hidden' : 'visible' }} />
+        {/* EPUB iframe */}
+        {book.format === 'epub' && iframeSrc && (
+          <iframe
+            ref={iframeRef}
+            src={iframeSrc}
+            className="w-full h-full border-none"
+            sandbox="allow-same-origin"
+            title="Book content"
+          />
         )}
 
+        {/* PDF canvas */}
         {book.format === 'pdf' && !loading && !error && (
           <div className="w-full h-full overflow-auto flex justify-center p-4 relative">
             <canvas
@@ -367,7 +469,7 @@ export function BookReader({ book }: { book: BookRow }) {
               style={{ maxWidth: '100%', height: 'auto', boxShadow: '0 8px 48px rgba(0,0,0,0.7)', borderRadius: 4 }}
             />
             {pdfRendering && (
-              <div className="absolute inset-0 flex items-center justify-center">
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                 <svg className="animate-spin w-6 h-6" style={{ color: '#C8852A' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21 12a9 9 0 11-6.219-8.56"/>
                 </svg>
@@ -376,37 +478,28 @@ export function BookReader({ book }: { book: BookRow }) {
           </div>
         )}
 
+        {/* Unsupported format */}
         {!['epub','pdf'].includes(book.format) && !loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center gap-3">
-            <div className="text-5xl opacity-40">📖</div>
-            <p className="text-sm" style={{ color: '#A8947C' }}>
-              {book.format.toUpperCase()} reading is coming in a future update.
-            </p>
-            <button onClick={() => router.back()} className="mt-2 px-5 py-2 rounded-xl text-sm font-medium" style={{ background: '#1C1915', color: '#A8947C' }}>
-              Back to library
-            </button>
+            <p className="text-sm" style={{ color: '#A8947C' }}>{book.format.toUpperCase()} reading is not supported yet.</p>
+            <button onClick={() => router.back()} className="px-5 py-2 rounded-xl text-sm" style={{ background: '#1C1915', color: '#A8947C' }}>Back</button>
           </div>
         )}
       </div>
 
-      {/* Bottom nav bar */}
+      {/* Bottom nav */}
       {!loading && !error && isReader && (
-        <div
-          className="flex items-center gap-4 px-5 py-4 border-t shrink-0"
-          style={{ borderColor: '#2E2820', background: '#131210' }}
-        >
-          <button onClick={goPrev} className="w-10 h-10 flex items-center justify-center rounded-xl shrink-0" style={{ background: '#1C1915', color: '#A8947C' }} aria-label="Previous">
+        <div className="flex items-center gap-4 px-5 py-4 border-t shrink-0" style={{ borderColor: '#2E2820', background: '#131210' }}>
+          <button onClick={goPrev} className="w-10 h-10 flex items-center justify-center rounded-xl shrink-0" style={{ background: '#1C1915', color: '#A8947C' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
           </button>
-
           <div className="flex-1 flex flex-col gap-1.5">
             <div className="h-1 rounded-full overflow-hidden" style={{ background: '#252118' }}>
               <div className="h-full rounded-full transition-all duration-700" style={{ width: `${progress}%`, background: '#C8852A' }} />
             </div>
             <div className="text-[0.62rem] text-right tabular-nums" style={{ color: '#6A5840' }}>{Math.round(progress)}% complete</div>
           </div>
-
-          <button onClick={goNext} className="w-10 h-10 flex items-center justify-center rounded-xl shrink-0" style={{ background: '#1C1915', color: '#A8947C' }} aria-label="Next">
+          <button onClick={goNext} className="w-10 h-10 flex items-center justify-center rounded-xl shrink-0" style={{ background: '#1C1915', color: '#A8947C' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
           </button>
         </div>
