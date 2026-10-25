@@ -46,31 +46,19 @@ async function parseEpub(file: File): Promise<BookMeta> {
 }
 
 async function parsePdf(file: File): Promise<BookMeta> {
-  const pdfjsLib = await import('pdfjs-dist')
-  // Point worker to bundled worker
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
-
-  const buf = await file.arrayBuffer()
-  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise
-  const meta = await pdf.getMetadata() as { info?: { Title?: string; Author?: string } }
-
-  const title  = meta.info?.Title  || file.name.replace(/\.pdf$/i, '')
-  const author = meta.info?.Author || ''
-
-  // Render first page as cover thumbnail
-  let cover_data: string | null = null
+  // Metadata only — no pdfjs, no canvas render (that was the bottleneck)
+  const buf   = await file.arrayBuffer()
+  const bytes = new Uint8Array(buf)
+  let title   = file.name.replace(/\.pdf$/i, '')
+  let author  = ''
   try {
-    const page   = await pdf.getPage(1)
-    const vp     = page.getViewport({ scale: 0.4 })
-    const canvas = document.createElement('canvas')
-    canvas.width  = vp.width
-    canvas.height = vp.height
-    const ctx = canvas.getContext('2d')!
-    await page.render({ canvasContext: ctx, viewport: vp, canvas }).promise
-    cover_data = canvas.toDataURL('image/jpeg', 0.7)
+    const text         = new TextDecoder('latin1').decode(bytes.slice(0, 16384))
+    const titleMatch   = text.match(/\/Title\s*\(([^)]+)\)/)
+    const authorMatch  = text.match(/\/Author\s*\(([^)]+)\)/)
+    if (titleMatch?.[1]?.trim())  title  = titleMatch[1].trim()
+    if (authorMatch?.[1]?.trim()) author = authorMatch[1].trim()
   } catch {}
-
-  return { title, author, format: 'pdf', cover_data }
+  return { title, author, format: 'pdf', cover_data: null }
 }
 
 async function parseCbz(file: File): Promise<BookMeta> {

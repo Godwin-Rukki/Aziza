@@ -26,6 +26,7 @@ export function BookReader({ book }: { book: BookRow }) {
   const supabase         = createClient()
 
   const [loading,      setLoading]      = useState(true)
+  const [loadingPct,   setLoadingPct]   = useState(0)
   const [error,        setError]        = useState<string | null>(null)
   const [pdfPage,      setPdfPage]      = useState(1)
   const [pdfTotal,     setPdfTotal]     = useState(0)
@@ -47,10 +48,16 @@ export function BookReader({ book }: { book: BookRow }) {
 
   useEffect(() => {
     if (book.format !== 'epub') return
+    const epubTimeout = setTimeout(() => {
+      setError('Took too long to open. The file may be corrupted.')
+      setLoading(false)
+    }, 25000)
     ;(async () => {
       try {
+        setLoadingPct(15)
         const buf = await getBookFile(book.id)
         if (!buf) throw new Error('Book file not in local storage — add it again.')
+        setLoadingPct(35)
 
         const { default: ePub } = await import('epubjs')
         const epubBook = ePub(buf as ArrayBuffer)
@@ -85,7 +92,9 @@ export function BookReader({ book }: { book: BookRow }) {
         const spine = (epubBook.spine as any)
         const spineItems: any[] = spine?.items ?? []
         const firstChapter = spineItems.find(item => !SKIP.test(item.href ?? ''))
+        setLoadingPct(75)
         await rendition.display(firstChapter?.href ?? undefined)
+        clearTimeout(epubTimeout)
 
         rendition.on('relocated', (location: any) => {
           const href = location.start?.href ?? ''
@@ -106,9 +115,10 @@ export function BookReader({ book }: { book: BookRow }) {
           } catch {}
         })
 
-        // locations.generate omitted — too CPU-intensive, freezes main thread
+        setLoadingPct(100)
         setLoading(false)
       } catch (e: any) {
+        clearTimeout(epubTimeout)
         setError(e.message ?? 'Failed to load EPUB')
         setLoading(false)
       }
@@ -149,15 +159,26 @@ export function BookReader({ book }: { book: BookRow }) {
 
   useEffect(() => {
     if (book.format !== 'pdf') return
+    const pdfTimeout = setTimeout(() => {
+      setError('Took too long to open. The file may be corrupted.')
+      setLoading(false)
+    }, 25000)
     ;(async () => {
       try {
+        setLoadingPct(15)
         const buf = await getBookFile(book.id)
         if (!buf) throw new Error('Book file not in local storage — add it again.')
+        setLoadingPct(40)
 
         const pdfjsLib = await import('pdfjs-dist')
         pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
-        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise
+        const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buf) })
+        loadingTask.onProgress = (p: any) => {
+          if (p.total) setLoadingPct(40 + Math.round((p.loaded / p.total) * 45))
+        }
+        const pdf = await loadingTask.promise
+        clearTimeout(pdfTimeout)
         pdfDocRef.current = pdf
         setPdfTotal(pdf.numPages)
 
@@ -166,9 +187,11 @@ export function BookReader({ book }: { book: BookRow }) {
           : 1
         setPdfPage(startPage)
 
+        setLoadingPct(100)
         setLoading(false)
         await renderPdfPage(pdf, startPage)
       } catch (e: any) {
+        clearTimeout(pdfTimeout)
         setError(e.message ?? 'Failed to load PDF')
         setLoading(false)
       }
@@ -305,11 +328,16 @@ export function BookReader({ book }: { book: BookRow }) {
               <div className="text-base font-semibold mb-1 max-w-[220px] truncate" style={{ fontFamily: "'Yeseva One', serif", color: '#F0E8D8' }}>
                 {book.title}
               </div>
-              <div className="flex items-center justify-center gap-2" style={{ color: '#6A5840' }}>
-                <svg className="animate-spin w-4 h-4 shrink-0" style={{ color: '#C8852A' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M21 12a9 9 0 11-6.219-8.56"/>
-                </svg>
-                <span className="text-sm">Opening book…</span>
+              <div className="w-full">
+                <div className="h-1 rounded-full overflow-hidden mb-1.5" style={{ background: '#252118' }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${loadingPct || 5}%`, background: '#C8852A' }}
+                  />
+                </div>
+                <div className="text-xs text-center tabular-nums" style={{ color: '#6A5840' }}>
+                  {loadingPct < 100 ? `${loadingPct}%` : 'Ready…'}
+                </div>
               </div>
             </div>
           </div>

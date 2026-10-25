@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { AddBook } from '@/components/add-book'
 import { createClient } from '@/lib/supabase/client'
@@ -156,7 +156,13 @@ function sassyGreeting(name: string, bookCount: number): string {
 export function LibraryView({ books: initialBooks, userName = 'reader' }: { books: Book[]; userName?: string }) {
   const [books, setBooks] = useState<Book[]>(initialBooks)
   const [search, setSearch] = useState('')
-  const greeting = sassyGreeting(userName, initialBooks.length)
+  const [greeting, setGreeting] = useState(() => sassyGreeting(userName, initialBooks.length))
+
+  useEffect(() => {
+    const saved = localStorage.getItem('aziza_display_name')
+    const name = saved?.trim() || userName
+    setGreeting(sassyGreeting(name, initialBooks.length))
+  }, [])
 
   function onAdded(book: Book) {
     setBooks(prev => [book, ...prev])

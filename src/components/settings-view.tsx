@@ -30,14 +30,22 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export function SettingsView({ email }: { email: string }) {
   const router  = useRouter()
-  const [voice,    setVoiceState]    = useState('af_heart')
-  const [fontSize, setFontSizeState] = useState('md')
-  const [clearing, setClearing]      = useState(false)
+  const [displayName, setDisplayNameState] = useState('')
+  const [voice,       setVoiceState]       = useState('af_heart')
+  const [fontSize,    setFontSizeState]    = useState('md')
+  const [clearing,    setClearing]         = useState(false)
 
   useEffect(() => {
+    setDisplayNameState(localStorage.getItem('aziza_display_name') ?? '')
     setVoiceState(localStorage.getItem('aziza_default_voice') ?? 'af_heart')
     setFontSizeState(localStorage.getItem('aziza_font_size') ?? 'md')
   }, [])
+
+  function saveDisplayName(val: string) {
+    setDisplayNameState(val)
+    if (val.trim()) localStorage.setItem('aziza_display_name', val.trim())
+    else localStorage.removeItem('aziza_display_name')
+  }
 
   function setVoice(v: string) {
     setVoiceState(v)
@@ -75,6 +83,22 @@ export function SettingsView({ email }: { email: string }) {
       <h1 className="mb-6" style={{ fontFamily: "'Yeseva One', serif", fontSize: '1.5rem', color: '#F0E8D8' }}>
         Settings
       </h1>
+
+      <Section title="Profile">
+        <div className="mb-3">
+          <label className="block text-xs mb-1.5" style={{ color: '#6A5840' }}>Display name</label>
+          <input
+            value={displayName}
+            onChange={e => saveDisplayName(e.target.value)}
+            placeholder={email.split('@')[0]}
+            className="w-full px-3 py-2 rounded-xl text-sm"
+            style={{ background: '#1C1915', border: '1px solid #2E2820', color: '#F0E8D8', outline: 'none' }}
+            onFocus={e => (e.target.style.borderColor = '#C8852A')}
+            onBlur={e => (e.target.style.borderColor = '#2E2820')}
+          />
+          <p className="text-xs mt-1.5" style={{ color: '#4A3828' }}>Shown in your library greeting. Leave blank to use email username.</p>
+        </div>
+      </Section>
 
       <Section title="Account">
         <div className="flex items-center gap-4 mb-4">
