@@ -225,7 +225,7 @@ export function BookReader({ book }: { book: BookRow }) {
         setLoadingPct(25)
 
         const { default: JSZip } = await import('jszip')
-        const zip = await JSZip.loadAsync(buf, {
+        const zip = await (JSZip as any).loadAsync(buf, {
           onUpdate: (m: any) => setLoadingPct(25 + Math.round((m.percent ?? 0) * 0.35)),
         })
         zipRef.current = zip

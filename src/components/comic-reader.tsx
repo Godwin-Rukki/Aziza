@@ -86,7 +86,7 @@ export function ComicReader({ comic }: { comic: ComicRow }) {
         setLoadingPct(10)
         const { default: JSZip } = await import('jszip')
 
-        const zip = await JSZip.loadAsync(buf, {
+        const zip = await (JSZip as any).loadAsync(buf, {
           onUpdate: (meta: any) => setLoadingPct(10 + Math.round((meta.percent ?? 0) * 0.75)),
         })
         zipRef.current = zip
