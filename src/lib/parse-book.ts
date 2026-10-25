@@ -1,18 +1,17 @@
 export type BookMeta = {
   title: string
   author: string
-  format: 'epub' | 'pdf' | 'cbz' | 'cbr' | 'mobi'
+  format: 'epub' | 'pdf' | 'mobi'
   cover_data: string | null // base64 data URL
 }
 
 export async function parseBook(file: File): Promise<BookMeta> {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
-  const format = (['epub','pdf','cbz','cbr','mobi'] as const).find(f => f === ext) ?? 'epub'
+  const format = (['epub','pdf','mobi'] as const).find(f => f === ext) ?? 'epub'
 
   if (format === 'epub') return parseEpub(file)
   if (format === 'pdf')  return parsePdf(file)
-  if (format === 'cbz') return parseCbz(file)
-  // CBR/MOBI — basic metadata from filename only
+  // MOBI — basic metadata from filename only
   return {
     title: file.name.replace(/\.[^.]+$/, ''),
     author: '',
@@ -61,27 +60,6 @@ async function parsePdf(file: File): Promise<BookMeta> {
   return { title, author, format: 'pdf', cover_data: null }
 }
 
-async function parseCbz(file: File): Promise<BookMeta> {
-  const { default: JSZip } = await import('jszip')
-  const zip = await JSZip.loadAsync(await file.arrayBuffer())
-
-  const imageFiles = Object.keys(zip.files)
-    .filter(name => /\.(jpe?g|png|webp|gif)$/i.test(name) && !zip.files[name].dir)
-    .sort()
-
-  let cover_data: string | null = null
-  if (imageFiles.length > 0) {
-    const blob = await zip.files[imageFiles[0]].async('blob')
-    cover_data = await blobToDataUrl(blob)
-  }
-
-  return {
-    title: file.name.replace(/\.[^.]+$/, ''),
-    author: '',
-    format: 'cbz',
-    cover_data,
-  }
-}
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {

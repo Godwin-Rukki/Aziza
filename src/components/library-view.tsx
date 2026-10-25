@@ -110,7 +110,7 @@ function EmptyState({ onAdded }: { onAdded: (book: Book) => void }) {
       </svg>
       <h2 className="text-2xl mb-2" style={{ fontFamily: "'Yeseva One', serif", color: '#F0E8D8' }}>Your shelf awaits</h2>
       <p className="text-sm leading-relaxed mb-8 max-w-xs" style={{ color: '#A8947C' }}>
-        Add your first book and Aziza will give it a voice. EPUB, PDF, MOBI, or comics.
+        Add your first book and Aziza will give it a voice. EPUB, PDF, or MOBI.
       </p>
       <AddBook
         onAdded={onAdded}
@@ -123,7 +123,7 @@ function EmptyState({ onAdded }: { onAdded: (book: Book) => void }) {
         Add your first book
       </AddBook>
       <div className="flex gap-2 flex-wrap justify-center mt-8">
-        {['EPUB', 'PDF', 'MOBI', 'CBZ', 'CBR'].map(f => (
+        {['EPUB', 'PDF', 'MOBI'].map(f => (
           <span key={f} className="px-3 py-1 rounded-full text-[0.7rem]" style={{ background: '#1C1915', border: '1px solid #2E2820', color: '#A8947C' }}>
             {f}
           </span>

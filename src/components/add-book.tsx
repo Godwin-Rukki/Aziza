@@ -117,7 +117,7 @@ export function AddBook({ onAdded, className, style, children }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept=".epub,.pdf,.mobi,.cbz,.cbr"
+        accept=".epub,.pdf,.mobi"
         className="hidden"
         onChange={handleFile}
       />
