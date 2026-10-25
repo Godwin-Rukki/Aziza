@@ -73,7 +73,7 @@ function ComicCover({ comic, idx }: { comic: Comic; idx: number }) {
   )
 }
 
-function EmptyState({ onAdd }: { onAdd: () => void }) {
+function EmptyState({ onAdd }: { onAdd: (b: any) => void }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6 py-16 text-center">
       <svg viewBox="0 0 120 140" width="100" height="117" className="mb-8 opacity-80">
@@ -113,9 +113,14 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
   )
 }
 
-export function ComicsView({ comics }: { comics: Comic[] }) {
+export function ComicsView({ comics: initialComics }: { comics: Comic[] }) {
+  const [comics, setComics] = useState<Comic[]>(initialComics)
   const [search, setSearch] = useState('')
   const router = useRouter()
+
+  function onAdded(book: any) {
+    setComics(prev => [book, ...prev])
+  }
   const refresh = () => router.refresh()
 
   const filtered = comics.filter(c =>
@@ -152,7 +157,7 @@ export function ComicsView({ comics }: { comics: Comic[] }) {
             />
           </div>
           <AddBook
-            onAdded={refresh}
+            onAdded={onAdded}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold"
             style={{ background: '#C83060', color: '#F0E8D8' }}
           >
@@ -165,7 +170,7 @@ export function ComicsView({ comics }: { comics: Comic[] }) {
       </div>
 
       {comics.length === 0 ? (
-        <EmptyState onAdd={refresh} />
+        <EmptyState onAdd={onAdded} />
       ) : (
         <div className="px-8 py-7">
           {filtered.length === 0 ? (

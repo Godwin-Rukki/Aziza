@@ -5,8 +5,19 @@ import { createClient } from '@/lib/supabase/client'
 import { saveBookFile } from '@/lib/idb'
 import { parseBook } from '@/lib/parse-book'
 
+type NewBook = {
+  id: string
+  title: string
+  author: string | null
+  format: string
+  cover_data: string | null
+  progress_pct: number
+  last_opened: null
+  date_added: string
+}
+
 type Props = {
-  onAdded: () => void
+  onAdded: (book: NewBook) => void
   className?: string
   style?: React.CSSProperties
   children: React.ReactNode
@@ -58,7 +69,16 @@ export function AddBook({ onAdded, className, style, children }: Props) {
 
       setStage('done')
       setMsg('')
-      onAdded()
+      onAdded({
+        id: row.id,
+        title: meta.title,
+        author: meta.author || null,
+        format: meta.format,
+        cover_data: meta.cover_data,
+        progress_pct: 0,
+        last_opened: null,
+        date_added: new Date().toISOString(),
+      })
     } catch (err: unknown) {
       setStage('error')
       setMsg(err instanceof Error ? err.message : 'Failed')

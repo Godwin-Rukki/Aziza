@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AddBook } from '@/components/add-book'
 import { createClient } from '@/lib/supabase/client'
@@ -27,7 +26,7 @@ const COVER_STYLES = [
   { bg: '#040A14', accent: '#4080B0', titleColor: '#70A8D8', authorColor: '#305880' },
 ]
 
-function BookCover({ book, idx, onDeleted }: { book: Book; idx: number; onDeleted: () => void }) {
+function BookCover({ book, idx, onRemove }: { book: Book; idx: number; onRemove: (id: string) => void }) {
   const style = COVER_STYLES[idx % COVER_STYLES.length]
   const pct = book.progress_pct ?? 0
   const [deleting, setDeleting] = useState(false)
@@ -35,21 +34,20 @@ function BookCover({ book, idx, onDeleted }: { book: Book; idx: number; onDelete
   async function handleDelete(e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
-    if (!confirm(`Remove "${book.title}" from your library?`)) return
+    if (!confirm(`Remove "${book.title}"?`)) return
     setDeleting(true)
+    onRemove(book.id) // optimistic — remove from UI immediately
     try {
       const supabase = createClient()
       await supabase.from('book_metadata').delete().eq('id', book.id)
       await deleteBookFile(book.id)
-      onDeleted()
     } catch {
-      setDeleting(false)
+      // already removed from UI; nothing to revert cleanly here
     }
   }
 
   return (
     <div className="group relative" style={{ animation: `fade-in 200ms ease ${idx * 40}ms both` }}>
-      {/* Delete button — visible on hover (desktop) or always small on mobile */}
       <button
         onClick={handleDelete}
         disabled={deleting}
@@ -57,15 +55,9 @@ function BookCover({ book, idx, onDeleted }: { book: Book; idx: number; onDelete
         style={{ background: 'rgba(180,40,40,0.85)', color: '#fff' }}
         aria-label="Remove book"
       >
-        {deleting ? (
-          <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-            <path d="M21 12a9 9 0 11-6.219-8.56"/>
-          </svg>
-        ) : (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        )}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
       </button>
 
       <Link href={`/reader/${book.id}`} className="block cursor-pointer">
@@ -85,7 +77,6 @@ function BookCover({ book, idx, onDeleted }: { book: Book; idx: number; onDelete
             </div>
           )}
         </div>
-
         <div className="flex items-center gap-2 mb-1">
           <div className="flex-1 h-[3px] rounded-full overflow-hidden" style={{ background: '#252118' }}>
             <div className="h-full rounded-full" style={{ width: `${pct}%`, background: '#C8852A' }} />
@@ -94,7 +85,6 @@ function BookCover({ book, idx, onDeleted }: { book: Book; idx: number; onDelete
             {pct > 0 ? `${Math.round(pct)}%` : 'New'}
           </span>
         </div>
-
         <div className="text-[0.82rem] font-semibold truncate" style={{ color: '#F0E8D8' }}>{book.title}</div>
         <div className="text-[0.72rem] truncate" style={{ color: '#6A5840' }}>{book.author ?? 'Unknown'}</div>
       </Link>
@@ -102,7 +92,7 @@ function BookCover({ book, idx, onDeleted }: { book: Book; idx: number; onDelete
   )
 }
 
-function EmptyState({ onAdd }: { onAdd: () => void }) {
+function EmptyState({ onAdded }: { onAdded: (book: Book) => void }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6 py-16 text-center">
       <svg viewBox="0 0 120 160" width="100" height="134" className="mb-8 opacity-90">
@@ -123,7 +113,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
         Add your first book and Aziza will give it a voice. EPUB, PDF, MOBI, or comics.
       </p>
       <AddBook
-        onAdded={onAdd}
+        onAdded={onAdded}
         className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm"
         style={{ background: '#C8852A', color: '#0C0B09', boxShadow: '0 2px 20px rgba(200,133,42,0.2)' }}
       >
@@ -143,10 +133,17 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
   )
 }
 
-export function LibraryView({ books }: { books: Book[] }) {
+export function LibraryView({ books: initialBooks }: { books: Book[] }) {
+  const [books, setBooks] = useState<Book[]>(initialBooks)
   const [search, setSearch] = useState('')
-  const router = useRouter()
-  const refresh = () => router.refresh()
+
+  function onAdded(book: Book) {
+    setBooks(prev => [book, ...prev])
+  }
+
+  function onRemove(id: string) {
+    setBooks(prev => prev.filter(b => b.id !== id))
+  }
 
   const inProgress = books.filter(b => (b.progress_pct ?? 0) > 0 && (b.progress_pct ?? 0) < 100)
   const all = books.filter(b =>
@@ -158,7 +155,7 @@ export function LibraryView({ books }: { books: Book[] }) {
 
   return (
     <div className="animate-fade-in">
-      {/* Header — responsive */}
+      {/* Header */}
       <div
         className="px-4 md:px-8 pt-5 md:pt-7 pb-4 md:pb-5 border-b sticky top-0 z-10"
         style={{ borderColor: '#2E2820', background: '#0C0B09' }}
@@ -174,7 +171,7 @@ export function LibraryView({ books }: { books: Book[] }) {
             </p>
           </div>
           <AddBook
-            onAdded={refresh}
+            onAdded={onAdded}
             className="flex items-center gap-1.5 px-3 md:px-4 py-2 rounded-xl text-sm font-semibold shrink-0"
             style={{ background: '#C8852A', color: '#0C0B09' }}
           >
@@ -185,7 +182,6 @@ export function LibraryView({ books }: { books: Book[] }) {
             <span className="sm:hidden">Add</span>
           </AddBook>
         </div>
-        {/* Search — full width on mobile */}
         <div className="relative flex items-center">
           <svg className="absolute left-3 w-4 h-4 pointer-events-none" style={{ color: '#6A5840' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -204,7 +200,7 @@ export function LibraryView({ books }: { books: Book[] }) {
 
       {/* Body */}
       {books.length === 0 ? (
-        <EmptyState onAdd={refresh} />
+        <EmptyState onAdded={onAdded} />
       ) : (
         <div className="px-4 md:px-8 py-5 md:py-7">
           {inProgress.length > 0 && !search && (
@@ -212,8 +208,8 @@ export function LibraryView({ books }: { books: Book[] }) {
               <div className="text-[0.68rem] uppercase tracking-[0.12em] font-semibold mb-4" style={{ color: '#6A5840' }}>
                 Continue listening
               </div>
-              <div className="grid gap-4 md:gap-5 mb-8 md:mb-10" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))' }}>
-                {inProgress.map((book, i) => <BookCover key={book.id} book={book} idx={i} onDeleted={refresh} />)}
+              <div className="grid gap-4 md:gap-5 mb-8" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))' }}>
+                {inProgress.map((book, i) => <BookCover key={book.id} book={book} idx={i} onRemove={onRemove} />)}
               </div>
             </>
           )}
@@ -224,7 +220,7 @@ export function LibraryView({ books }: { books: Book[] }) {
             <p className="text-sm" style={{ color: '#6A5840' }}>No books match.</p>
           ) : (
             <div className="grid gap-4 md:gap-5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))' }}>
-              {all.map((book, i) => <BookCover key={book.id} book={book} idx={i} onDeleted={refresh} />)}
+              {all.map((book, i) => <BookCover key={book.id} book={book} idx={i} onRemove={onRemove} />)}
             </div>
           )}
         </div>
