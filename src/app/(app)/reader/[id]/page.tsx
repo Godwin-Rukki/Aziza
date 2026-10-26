@@ -23,6 +23,7 @@ export default async function ReaderPage({ params }: { params: Promise<{ id: str
     .from('book_metadata')
     .update({ last_opened: new Date().toISOString() })
     .eq('id', id)
+    .eq('user_id', user.id)
 
   return <BookReader book={book} />
 }

@@ -55,6 +55,14 @@ export function AddBook({ onAdded, className, style, children }: Props) {
     if (!file) return
     e.target.value = ''
 
+    // 150 MB hard limit — larger files OOM the browser ArrayBuffer read
+    if (file.size > 150 * 1024 * 1024) {
+      setErrorMsg('File too large (max 150 MB)')
+      setStage('error')
+      setTimeout(() => { setStage('idle'); setErrorMsg('') }, 3500)
+      return
+    }
+
     try {
       setStage('reading')
       // Small delay so UI renders before heavy work

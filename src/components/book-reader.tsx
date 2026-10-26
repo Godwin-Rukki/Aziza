@@ -198,6 +198,7 @@ export function BookReader({ book }: { book: BookRow }) {
   const [showTTS,      setShowTTS]      = useState(false)
   const [ttsAutoPlay,  setTtsAutoPlay]  = useState(0)
   const chapterIdxRef  = useRef(0)
+  const ttsTextRef     = useRef('')
 
   useEffect(() => { chapterIdxRef.current = chapterIdx }, [chapterIdx])
 
@@ -229,19 +230,24 @@ export function BookReader({ book }: { book: BookRow }) {
 
     setIframeSrc(url)
     setChapterIdx(idx)
+    ttsTextRef.current = text
     setTtsText(text)
     setPageLabel(`Ch ${idx + 1} / ${chapters.length}`)
     await saveProgress((idx / Math.max(1, chapters.length - 1)) * 100)
     setTimeout(() => iframeRef.current?.contentWindow?.scrollTo(0, 0), 100)
   }, [])
 
-  // Called by TTSPanel when it finishes reading a chapter — advance and auto-play next
+  // Called by TTSPanel when it finishes reading a chapter — advance to next chapter with text
   const onTTSEnd = useCallback(async () => {
-    const next = chapterIdxRef.current + 1
-    if (next < chaptersRef.current.length) {
+    const total = chaptersRef.current.length
+    let next = chapterIdxRef.current + 1
+    // Skip image-only / very short chapters (no text to read)
+    while (next < total) {
       await goToChapter(next)
-      setTtsAutoPlay(c => c + 1)
+      if (ttsTextRef.current.trim().length > 30) break
+      next++
     }
+    if (next < total) setTtsAutoPlay(c => c + 1)
   }, [goToChapter])
 
   useEffect(() => {

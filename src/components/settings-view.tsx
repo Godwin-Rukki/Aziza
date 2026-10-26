@@ -33,13 +33,16 @@ export function SettingsView({ email }: { email: string }) {
   const [displayName, setDisplayNameState] = useState('')
   const [voice,       setVoiceState]       = useState('af_heart')
   const [fontSize,    setFontSizeState]    = useState('md')
+  const [elKey,       setElKeyState]       = useState('')
   const [clearing,    setClearing]         = useState(false)
   const [nameSaved,   setNameSaved]        = useState(false)
+  const [elKeySaved,  setElKeySaved]       = useState(false)
 
   useEffect(() => {
     setDisplayNameState(localStorage.getItem('aziza_display_name') ?? '')
     setVoiceState(localStorage.getItem('aziza_default_voice') ?? 'af_heart')
     setFontSizeState(localStorage.getItem('aziza_font_size') ?? 'md')
+    setElKeyState(localStorage.getItem('aziza_elevenlabs_key') ?? '')
   }, [])
 
   function saveDisplayName() {
@@ -57,6 +60,13 @@ export function SettingsView({ email }: { email: string }) {
   function setFontSize(f: string) {
     setFontSizeState(f)
     localStorage.setItem('aziza_font_size', f)
+  }
+
+  function saveElKey() {
+    if (elKey.trim()) localStorage.setItem('aziza_elevenlabs_key', elKey.trim())
+    else localStorage.removeItem('aziza_elevenlabs_key')
+    setElKeySaved(true)
+    setTimeout(() => setElKeySaved(false), 2000)
   }
 
   async function signOut() {
@@ -132,6 +142,41 @@ export function SettingsView({ email }: { email: string }) {
         >
           Sign out
         </button>
+      </Section>
+
+      <Section title="ElevenLabs AI Voice (Optional)">
+        <p className="text-xs mb-3 leading-relaxed" style={{ color: '#6A5840' }}>
+          For high-quality voice. Get a free API key at elevenlabs.io — 10,000 characters/month free.
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="password"
+            value={elKey}
+            onChange={e => setElKeyState(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && saveElKey()}
+            placeholder="sk_xxxxxxxxxxxxxxxxxxxxxxxx"
+            className="flex-1 px-3 py-2 rounded-xl text-sm font-mono"
+            style={{ background: '#1C1915', border: '1px solid #2E2820', color: '#F0E8D8', outline: 'none' }}
+            onFocus={e => (e.target.style.borderColor = '#C8852A')}
+            onBlur={e => (e.target.style.borderColor = '#2E2820')}
+          />
+          <button
+            onClick={saveElKey}
+            className="px-4 py-2 rounded-xl text-sm font-medium shrink-0"
+            style={{
+              background: elKeySaved ? 'rgba(74,128,80,0.15)' : 'rgba(200,133,42,0.12)',
+              color: elKeySaved ? '#4A8050' : '#C8852A',
+              border: `1px solid ${elKeySaved ? '#4A8050' : '#C8852A'}`,
+            }}
+          >
+            {elKeySaved ? 'Saved' : 'Save'}
+          </button>
+        </div>
+        {elKey && (
+          <p className="text-xs mt-2" style={{ color: '#4A8050' }}>
+            ⚡ ElevenLabs active — voices upgrade automatically in the reader
+          </p>
+        )}
       </Section>
 
       <Section title="Default voice">

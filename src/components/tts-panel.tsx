@@ -2,6 +2,17 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 
+// Kokoro voice IDs → ElevenLabs voice IDs (best quality mapping)
+const EL_VOICES: Record<string, string> = {
+  af_heart:   '21m00Tcm4TlvDq8ikWAM', // Rachel — warm female
+  af_bella:   'EXAVITQu4vr4xnSDxMaL', // Bella  — expressive female
+  af_sarah:   '9BWtsMINqrJLrRacOk9x', // Aria   — clear female
+  am_adam:    'pNInz6obpgDQGcFmaJgB', // Adam   — confident male
+  am_michael: 'TxGEqnHWrfWFTfGW9XjX', // Josh   — deep male
+  bf_emma:    'MF3mGyEYCl7XYWbV9V6O', // Elli   — soft british female
+  bm_george:  'VR6AewLTigWG4xSOukaG', // Arnold — british male
+}
+
 const VOICES = [
   { id: 'af_heart',   label: 'Heart',   g: '♀' },
   { id: 'af_bella',   label: 'Bella',   g: '♀' },
@@ -16,7 +27,7 @@ const SPEEDS = [0.75, 1, 1.25, 1.5, 2]
 const FEMALE_IDS = new Set(['af_heart', 'af_bella', 'af_sarah', 'bf_emma'])
 
 type Stage = 'idle' | 'loading' | 'synthesizing' | 'playing' | 'paused' | 'done' | 'error'
-type Engine = 'kokoro' | 'browser' | null
+type Engine = 'elevenlabs' | 'kokoro' | 'browser' | null
 
 function splitSentences(text: string): string[] {
   return (text.match(/[^.!?]+[.!?]*/g) ?? [text])
@@ -28,24 +39,19 @@ function getBrowserVoice(voiceId: string): SpeechSynthesisVoice | null {
   const all = speechSynthesis.getVoices()
   if (all.length === 0) return null
   const female = FEMALE_IDS.has(voiceId)
-
   const natural = all.filter(v => v.lang.startsWith('en') && (v.name.includes('Online') || v.name.includes('Natural')))
-  const femaleNatural = ['aria','jenny','michelle','elizabeth','ana','amber','ashley','cora','jane','nancy','sara']
-  const maleNatural   = ['guy','eric','ryan','christopher','jason','roger','steffan','tony','davis','andrew']
-  const naturalMatch  = natural.find(v => {
+  const femaleNames = ['aria','jenny','michelle','elizabeth','ana','amber','ashley','cora','jane','nancy','sara']
+  const maleNames   = ['guy','eric','ryan','christopher','jason','roger','steffan','tony','davis','andrew']
+  const match = natural.find(v => {
     const n = v.name.toLowerCase()
-    return female ? femaleNatural.some(nm => n.includes(nm)) : maleNatural.some(nm => n.includes(nm))
+    return female ? femaleNames.some(nm => n.includes(nm)) : maleNames.some(nm => n.includes(nm))
   }) ?? natural[0]
-  if (naturalMatch) return naturalMatch
-
+  if (match) return match
   const en = all.filter(v => v.lang.startsWith('en'))
-  const genderMatch = en.find(v => {
+  return en.find(v => {
     const n = v.name.toLowerCase()
-    return female
-      ? (n.includes('zira') || n.includes('hazel') || n.includes('susan') || n.includes('samantha') || n.includes('victoria'))
-      : (n.includes('david') || n.includes('mark') || n.includes('daniel') || n.includes('alex'))
-  })
-  return genderMatch ?? en[0] ?? all[0]
+    return female ? (n.includes('zira') || n.includes('samantha')) : (n.includes('david') || n.includes('daniel'))
+  }) ?? en[0] ?? all[0]
 }
 
 export function TTSPanel({
@@ -67,15 +73,16 @@ export function TTSPanel({
   canPrev?: boolean
   canNext?: boolean
 }) {
-  const [stage,    setStage]    = useState<Stage>('idle')
-  const [modelPct, setModelPct] = useState(0)
-  const [engine,   setEngine]   = useState<Engine>(null)
-  const [voice,    setVoiceS]   = useState(() =>
+  const [stage,     setStage]    = useState<Stage>('idle')
+  const [modelPct,  setModelPct] = useState(0)
+  const [engine,    setEngine]   = useState<Engine>(null)
+  const [voice,     setVoiceS]   = useState(() =>
     typeof window !== 'undefined' ? (localStorage.getItem('aziza_default_voice') ?? 'af_heart') : 'af_heart'
   )
-  const [speed, setSpeed] = useState(1)
-  const [idx,   setIdx]   = useState(0)
-  const [err,   setErr]   = useState<string | null>(null)
+  const [speed,     setSpeed]    = useState(1)
+  const [idx,       setIdx]      = useState(0)
+  const [err,       setErr]      = useState<string | null>(null)
+  const [tapNeeded, setTapNeeded] = useState(false) // gesture-restriction fallback
 
   const sentences   = useRef<string[]>([])
   const ttsRef      = useRef<any>(null)
@@ -96,22 +103,54 @@ export function TTSPanel({
   useEffect(() => { sentences.current = splitSentences(text) }, [text])
   useEffect(() => { if (sourceNode.current) sourceNode.current.playbackRate.value = speed }, [speed])
 
-  // Auto-play when chapter advances (autoPlay counter increments)
+  // Auto-play when chapter advances
   useEffect(() => {
     if (autoPlay > autoPlayRef.current && text.trim()) {
       autoPlayRef.current = autoPlay
       sentences.current = splitSentences(text)
       savedIdxRef.current = 0
       setIdx(0)
-      // Brief pause to let state settle, then play
-      setTimeout(() => playFrom(0), 80)
+      setTapNeeded(false)
+      setTimeout(async () => {
+        // Try to auto-play; if speech synthesis blocked by gesture, show tap button
+        const eng = engineRef.current
+        if (eng === 'elevenlabs' || eng === 'kokoro') {
+          await playFrom(0)
+        } else {
+          // Browser speech: attempt and detect silent block
+          stageRef.current = 'playing'
+          setStage('playing')
+          const utt = new SpeechSynthesisUtterance(sentences.current[0] ?? '')
+          utt.rate  = speedRef.current
+          utt.voice = getBrowserVoice(voiceRef.current)
+          utt.onstart = () => { setTapNeeded(false) }
+          utt.onerror = (e) => {
+            if (e.error !== 'canceled') {
+              stageRef.current = 'idle'
+              setStage('idle')
+              setTapNeeded(true) // show tap button
+            }
+          }
+          utt.onend = () => { if (stageRef.current === 'playing') playBrowser(1) }
+          speechSynthesis.cancel()
+          speechSynthesis.speak(utt)
+          // If still pending after 400ms, browser probably blocked it
+          setTimeout(() => {
+            if (!speechSynthesis.speaking && !speechSynthesis.pending && stageRef.current === 'playing') {
+              stageRef.current = 'idle'
+              setStage('idle')
+              setTapNeeded(true)
+            }
+          }, 400)
+        }
+      }, 80)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPlay, text])
 
   // Notify parent when TTS naturally finishes
   useEffect(() => {
-    if (stage === 'done') onEnd?.()
+    if (stage === 'done') { setTapNeeded(false); onEnd?.() }
   }, [stage])
 
   function setVoice(v: string) {
@@ -120,21 +159,78 @@ export function TTSPanel({
     setVoiceS(v)
     localStorage.setItem('aziza_default_voice', v)
     if (wasActive) {
-      // Stop current, update voiceRef, resume from same sentence
-      stageRef.current = 'idle' // prevent onended callback from restarting old voice
+      stageRef.current = 'idle'
       try { sourceNode.current?.stop() } catch {}
       speechSynthesis.cancel()
       savedIdxRef.current = curIdx
       setStage('idle')
-      // voiceRef.current will update on next render; slight delay ensures it
-      setTimeout(() => {
-        voiceRef.current = v
-        playFrom(curIdx)
-      }, 60)
+      setTimeout(() => { voiceRef.current = v; playFrom(curIdx) }, 60)
     }
   }
 
-  // ── Kokoro engine ─────────────────────────────────────────────────────────
+  // ── ElevenLabs engine ────────────────────────────────────────────────────
+
+  async function playElevenLabs(startIdx: number) {
+    const list = sentences.current
+    if (startIdx >= list.length) { setStage('done'); return }
+    if ((stageRef.current as Stage) === 'idle') return
+
+    setIdx(startIdx)
+    setStage('synthesizing')
+    const apiKey = localStorage.getItem('aziza_elevenlabs_key') ?? ''
+
+    try {
+      const voiceId = EL_VOICES[voiceRef.current] ?? EL_VOICES['af_heart']
+      const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+        body: JSON.stringify({
+          text: list[startIdx],
+          model_id: 'eleven_turbo_v2_5',
+          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        }),
+      })
+
+      if (!resp.ok) {
+        if (resp.status === 401) {
+          // Bad key — fall back to browser silently
+          setEngine('browser')
+          engineRef.current = 'browser'
+          stageRef.current = 'playing'
+          playBrowser(startIdx)
+          return
+        }
+        throw new Error(`ElevenLabs ${resp.status}`)
+      }
+
+      const arrayBuf = await resp.arrayBuffer()
+      if ((stageRef.current as Stage) === 'idle') return
+
+      const ctx = audioCtx.current ?? new AudioContext()
+      audioCtx.current = ctx
+      if (ctx.state === 'suspended') await ctx.resume()
+
+      const decoded = await ctx.decodeAudioData(arrayBuf)
+      if ((stageRef.current as Stage) === 'idle') return
+
+      const src = ctx.createBufferSource()
+      src.buffer = decoded
+      src.playbackRate.value = speedRef.current
+      src.connect(ctx.destination)
+      sourceNode.current = src
+      setStage('playing')
+      src.start()
+      src.onended = () => { if (stageRef.current === 'playing') playElevenLabs(startIdx + 1) }
+    } catch (e: any) {
+      // Fallback to browser on any error
+      setEngine('browser')
+      engineRef.current = 'browser'
+      stageRef.current = 'playing'
+      playBrowser(startIdx)
+    }
+  }
+
+  // ── Kokoro engine ────────────────────────────────────────────────────────
 
   async function loadKokoro(): Promise<boolean> {
     if (ttsRef.current) return true
@@ -156,7 +252,8 @@ export function TTSPanel({
   async function playKokoro(startIdx: number) {
     const list = sentences.current
     if (startIdx >= list.length) { setStage('done'); return }
-    if (stageRef.current === 'idle') return // stopped by user
+    if (stageRef.current === 'idle') return
+
     setIdx(startIdx)
     setStage('synthesizing')
     try {
@@ -164,6 +261,7 @@ export function TTSPanel({
       if ((stageRef.current as Stage) === 'idle') return
       const ctx = audioCtx.current ?? new AudioContext()
       audioCtx.current = ctx
+      if (ctx.state === 'suspended') await ctx.resume()
       const buf = ctx.createBuffer(1, output.audio.length, output.sampling_rate)
       buf.copyToChannel(output.audio, 0)
       const src = ctx.createBufferSource()
@@ -180,22 +278,21 @@ export function TTSPanel({
     }
   }
 
-  // ── Browser Speech API engine ────────────────────────────────────────────
+  // ── Browser Speech API ───────────────────────────────────────────────────
 
   function playBrowser(startIdx: number) {
     const list = sentences.current
     if (startIdx >= list.length) { setStage('done'); return }
-    if (stageRef.current === 'idle') return // stopped by user
+    if (stageRef.current === 'idle') return
 
     setIdx(startIdx)
     setStage('playing')
     speechSynthesis.cancel()
-
-    const utt = new SpeechSynthesisUtterance(list[startIdx])
-    utt.rate  = speedRef.current
-    utt.voice = getBrowserVoice(voiceRef.current)
-    utt.onend   = () => { if (stageRef.current === 'playing') playBrowser(startIdx + 1) }
-    utt.onerror = (e) => { if (e.error !== 'canceled') { setErr('Speech error'); setStage('error') } }
+    const utt    = new SpeechSynthesisUtterance(list[startIdx])
+    utt.rate     = speedRef.current
+    utt.voice    = getBrowserVoice(voiceRef.current)
+    utt.onend    = () => { if (stageRef.current === 'playing') playBrowser(startIdx + 1) }
+    utt.onerror  = (e) => { if (e.error !== 'canceled') { setErr('Speech error'); setStage('error') } }
     speechSynthesis.speak(utt)
   }
 
@@ -204,10 +301,22 @@ export function TTSPanel({
   const playFrom = useCallback(async (startIdx: number) => {
     const list = sentences.current
     if (list.length === 0) { setStage('done'); return }
+    setTapNeeded(false)
 
-    if (engineRef.current === 'browser') { stageRef.current = 'playing'; playBrowser(startIdx); return }
-    if (engineRef.current === 'kokoro')  { await playKokoro(startIdx);  return }
+    if (engineRef.current === 'elevenlabs') { playElevenLabs(startIdx); return }
+    if (engineRef.current === 'browser')    { stageRef.current = 'playing'; playBrowser(startIdx); return }
+    if (engineRef.current === 'kokoro')     { await playKokoro(startIdx); return }
 
+    // First play — pick engine
+    const elKey = localStorage.getItem('aziza_elevenlabs_key')
+    if (elKey) {
+      setEngine('elevenlabs')
+      engineRef.current = 'elevenlabs'
+      playElevenLabs(startIdx)
+      return
+    }
+
+    // Try Kokoro, fall back to browser
     setStage('loading')
     stageRef.current = 'loading'
     const ok = await loadKokoro()
@@ -223,12 +332,13 @@ export function TTSPanel({
   }, [])
 
   function stop(resetToStart = false) {
-    stageRef.current = 'idle' // update ref immediately so onended callbacks bail
+    stageRef.current = 'idle'
     try { sourceNode.current?.stop() } catch {}
     speechSynthesis.cancel()
     if (resetToStart) { setIdx(0); savedIdxRef.current = 0 }
     else savedIdxRef.current = idx
     setStage('idle')
+    setTapNeeded(false)
   }
 
   function pause() {
@@ -238,8 +348,9 @@ export function TTSPanel({
     setStage('paused')
   }
 
-  const isActive  = stage === 'synthesizing' || stage === 'playing'
-  const current   = sentences.current[idx] ?? ''
+  const isActive = stage === 'synthesizing' || stage === 'playing'
+  const current  = sentences.current[idx] ?? ''
+  const hasEL    = typeof window !== 'undefined' && !!localStorage.getItem('aziza_elevenlabs_key')
 
   return (
     <div
@@ -253,20 +364,22 @@ export function TTSPanel({
       )}
 
       <div className="px-4 pt-3 pb-4 max-w-2xl mx-auto">
+        {/* Engine badge */}
         {engine && (
           <div className="text-[0.6rem] mb-1.5 text-right" style={{ color: '#4A3828' }}>
-            {engine === 'browser' ? 'Browser voice (AI voice unavailable)' : 'Kokoro AI'}
+            {engine === 'elevenlabs' ? '⚡ ElevenLabs AI' : engine === 'browser' ? 'Browser voice' : 'Kokoro AI'}
           </div>
         )}
 
-        {/* Current sentence */}
+        {/* Current sentence / status */}
         <div
           className="text-sm leading-relaxed mb-3 line-clamp-2 min-h-[2.5rem]"
           style={{ color: isActive ? '#F0E8D8' : '#6A5840', fontFamily: "'Spectral', serif", fontStyle: 'italic' }}
         >
           {stage === 'loading'  ? (modelPct > 0 ? `Loading AI voice… ${modelPct}%` : 'Starting…') :
-           stage === 'idle'     ? (text.trim() ? 'Press play to start listening' : 'No text on this page') :
-           stage === 'done'     ? 'Chapter finished — advancing…'                :
+           stage === 'idle' && tapNeeded ? 'Tap play to continue the next chapter' :
+           stage === 'idle'     ? (text.trim() ? 'Press play to listen' : 'No text on this page') :
+           stage === 'done'     ? 'Loading next chapter…'                        :
            stage === 'error'    ? (err ?? 'Error')                               :
            stage === 'paused'   ? `Paused — ${current}`                          :
            current}
@@ -278,9 +391,9 @@ export function TTSPanel({
             value={voice}
             onChange={e => setVoice(e.target.value)}
             className="text-[0.72rem] px-2 py-1.5 rounded-lg flex-1"
-            style={{ background: '#1C1915', border: '1px solid #2E2820', color: '#A8947C', outline: 'none' }}
+            style={{ background: '#1C1915', border: '1px solid #2E2820', color: hasEL ? '#C8852A' : '#A8947C', outline: 'none' }}
           >
-            {VOICES.map(v => <option key={v.id} value={v.id}>{v.g} {v.label}</option>)}
+            {VOICES.map(v => <option key={v.id} value={v.id}>{v.g} {v.label}{hasEL ? ' (EL)' : ''}</option>)}
           </select>
           <div className="flex gap-1">
             {SPEEDS.map(s => (
@@ -302,39 +415,27 @@ export function TTSPanel({
         <div className="flex items-center justify-between">
           {/* Chapter nav */}
           <div className="flex gap-1">
-            <button
-              onClick={onPrev}
-              disabled={!canPrev}
-              title="Previous chapter"
+            <button onClick={onPrev} disabled={!canPrev} title="Previous chapter"
               className="w-8 h-8 flex items-center justify-center rounded-lg"
               style={{ background: '#1C1915', color: canPrev ? '#A8947C' : '#2E2820' }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="15 18 9 12 15 6"/>
-              </svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
-            <button
-              onClick={onNext}
-              disabled={!canNext}
-              title="Next chapter"
+            <button onClick={onNext} disabled={!canNext} title="Next chapter"
               className="w-8 h-8 flex items-center justify-center rounded-lg"
               style={{ background: '#1C1915', color: canNext ? '#A8947C' : '#2E2820' }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="9 18 15 12 9 6"/>
-              </svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
           </div>
 
-          {/* Playback controls */}
+          {/* Playback */}
           <div className="flex items-center gap-2">
             <span className="text-[0.65rem] tabular-nums" style={{ color: '#6A5840' }}>
               {sentences.current.length > 0 ? `${idx + 1} / ${sentences.current.length}` : ''}
             </span>
 
-            <button
-              onClick={() => stop()}
-              disabled={stage === 'idle' || stage === 'loading'}
+            <button onClick={() => stop()} disabled={stage === 'idle' || stage === 'loading'}
               className="w-9 h-9 flex items-center justify-center rounded-xl"
               style={{ background: '#1C1915', color: '#6A5840' }}
             >
@@ -349,10 +450,15 @@ export function TTSPanel({
               </button>
             ) : (
               <button
-                onClick={() => playFrom(stage === 'paused' ? idx : savedIdxRef.current)}
+                onClick={() => { setTapNeeded(false); playFrom(stage === 'paused' ? idx : savedIdxRef.current) }}
                 disabled={stage === 'loading' || !text.trim()}
                 className="w-12 h-12 flex items-center justify-center rounded-full"
-                style={{ background: '#C8852A', color: '#0C0B09', opacity: (stage === 'loading' || !text.trim()) ? 0.5 : 1 }}
+                style={{
+                  background: tapNeeded ? '#4A8050' : '#C8852A',
+                  color: '#0C0B09',
+                  opacity: (stage === 'loading' || !text.trim()) ? 0.5 : 1,
+                  boxShadow: tapNeeded ? '0 0 0 4px rgba(74,128,80,0.3)' : undefined,
+                }}
               >
                 {stage === 'loading' ? (
                   <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
@@ -374,8 +480,7 @@ export function TTSPanel({
             </button>
           </div>
 
-          <button
-            onClick={() => { stop(); onClose() }}
+          <button onClick={() => { stop(); onClose() }}
             className="w-9 h-9 flex items-center justify-center rounded-xl"
             style={{ background: '#1C1915', color: '#6A5840' }}
           >
